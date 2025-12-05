@@ -1,34 +1,110 @@
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TorreClou.Core.DTOs.Financal;
-using TorreClou.Core.Entities.Financals;
+using TorreClou.Core.DTOs.Payments;
 using TorreClou.Core.Interfaces;
 
-namespace TorreClou.API.Controllers
+namespace TorreClou.API.Controllers;
+
+[Route("api/payments")]
+[Authorize]
+public class PaymentsController(IPaymentBusinessService paymentService, IWalletService walletService) : BaseApiController
 {
-    [ApiController]
-    [Route("api/payments")]
-    [Authorize]
-    public class PaymentsController(IPaymentBusinessService paymentService) : ControllerBase
+    #region Deposits
+
+    [HttpPost("deposit/crypto")]
+    public async Task<IActionResult> CryptoDeposit([FromBody] CryptoDepositRequestDto request)
     {
-        [HttpPost("deposit")]
-        public async Task<IActionResult> InitiateDeposit([FromBody] DepositRequestDto request)
-        {
-            // 1. Get UserId from Token (Clean & Simple)
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value!);
-
-            // 2. Call Service
-            var result = await paymentService.InitiateDepositAsync(userId, request.Amount);
-
-            // 3. Handle Result
-            if (!result.IsSuccess)
-            {
-                return BadRequest(result.Error);
-            }
-
-            // 4. Return URL
-            return Ok(new { paymentUrl = result.Value });
-        }
+        var result = await paymentService.InitiateDepositAsync(UserId, request.Amount, request.Currency);
+        return HandleResult(result, value => new { url = value });
     }
+
+    [HttpGet("deposits")]
+    public async Task<IActionResult> GetDeposits([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
+    {
+        var result = await paymentService.GetUserDepositsAsync(UserId, pageNumber, pageSize);
+        return HandleResult(result);
+    }
+
+    [HttpGet("deposits/{id}")]
+    public async Task<IActionResult> GetDeposit(int id)
+    {
+        var result = await paymentService.GetDepositByIdAsync(UserId, id);
+        return HandleResult(result);
+    }
+
+    #endregion
+
+    #region Wallet
+
+    [HttpGet("wallet/balance")]
+    public async Task<IActionResult> GetBalance()
+    {
+        var result = await walletService.GetUserBalanceAsync(UserId);
+        return HandleResult(result, balance => new WalletBalanceDto { Balance = balance, Currency = "USD" });
+    }
+
+    [HttpGet("wallet/transactions")]
+    public async Task<IActionResult> GetTransactions([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
+    {
+        var result = await walletService.GetUserTransactionsAsync(UserId, pageNumber, pageSize);
+        return HandleResult(result);
+    }
+
+    [HttpGet("wallet/transactions/{id}")]
+    public async Task<IActionResult> GetTransaction(int id)
+    {
+        var result = await walletService.GetTransactionByIdAsync(UserId, id);
+        return HandleResult(result);
+    }
+
+    #endregion
+
+    #region Webhooks
+
+    [HttpPost("webhook/crypto")]
+    [AllowAnonymous]
+    public async Task<IActionResult> CoinremitterWebhook([FromBody] CoinremitterWebhookDto? dto)
+    {
+        if (dto == null)
+            return Error("MISSING_DATA", "Missing webhook data");
+
+        var invoiceId = dto.InvoiceId;
+        var depositId = dto.CustomData1;
+
+        if (string.IsNullOrEmpty(invoiceId) && string.IsNullOrEmpty(depositId))
+            return Error("MISSING_ID", "Missing invoice_id or custom_data1");
+
+        var lookupId = !string.IsNullOrEmpty(invoiceId) ? invoiceId : depositId!;
+        var coin = dto.CoinSymbol ?? dto.Coin ?? string.Empty;
+
+        var result = await paymentService.ProcessCryptoWebhookAsync(lookupId, coin);
+        
+        if (!result.IsSuccess)
+            return HandleResult(result);
+        
+        return Success(new { success = true });
+    }
+
+    #endregion
+
+    #region Public
+
+    [HttpGet("stablecoins/minimum-amounts")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetStablecoinMinimumAmounts([FromServices] IPaymentGateway paymentGateway)
+    {
+        var minAmounts = await paymentGateway.GetMinimumAmountsForStablecoinsAsync();
+
+        var result = minAmounts.Select(kvp => new StablecoinMinAmountDto
+        {
+            Currency = kvp.Key,
+            MinAmount = kvp.Value,
+            FiatEquivalent = $"{kvp.Value:F2} USD"
+        }).ToList();
+
+        return Success(new { stablecoins = result });
+    }
+
+    #endregion
 }

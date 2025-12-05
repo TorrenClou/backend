@@ -17,5 +17,6 @@ namespace TorreClou.Core.Interfaces
 
         // Count with condition
         Task<int> CountAsync(Expression<Func<T, bool>> criteria);
+        Task<int> CountAsync(ISpecification<T> spec);
     }
 }

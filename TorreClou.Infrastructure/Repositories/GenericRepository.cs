@@ -61,5 +61,17 @@ namespace TorreClou.Infrastructure.Repositories
         {
             return await _context.Set<T>().CountAsync(criteria);
         }
+
+        public async Task<int> CountAsync(ISpecification<T> spec)
+        {
+            var query = _context.Set<T>().AsQueryable();
+            
+            if (spec.Criteria != null)
+            {
+                query = query.Where(spec.Criteria);
+            }
+            
+            return await query.CountAsync();
+        }
     }
 }
