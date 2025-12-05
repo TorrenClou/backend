@@ -2,23 +2,15 @@
 using TorreClou.Core.DTOs.Auth;
 using TorreClou.Core.Interfaces;
 
-namespace TorreClou.API.Controllers
+namespace TorreClou.API.Controllers;
+
+[Route("api/auth")]
+public class AuthController(IAuthService authService) : BaseApiController
 {
-    [ApiController]
-    [Route("api/auth")]
-    public class AuthController(IAuthService authService) : ControllerBase
+    [HttpPost("google-login")]
+    public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginDto model)
     {
-        [HttpPost("google-login")]
-        public async Task<ActionResult<AuthResponseDto>> GoogleLogin([FromBody] GoogleLoginDto model)
-        {
-            var result = await authService.LoginWithGoogleAsync(model);
-
-            if (result.IsSuccess)
-            {
-                return Ok(result.Value);
-            }
-
-            return BadRequest(result.Error);
-        }
+        var result = await authService.LoginWithGoogleAsync(model);
+        return HandleResult(result);
     }
 }

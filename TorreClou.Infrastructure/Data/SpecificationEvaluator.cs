@@ -1,7 +1,4 @@
-﻿// MySaaS.Infrastructure/Data/SpecificationEvaluator.cs
-using Microsoft.EntityFrameworkCore;
-using TorreClou.Core.Entities;
-using TorreClou.Core.Specifications;
+﻿using Microsoft.EntityFrameworkCore;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Specifications;
 
@@ -29,6 +26,11 @@ namespace MySaaS.Infrastructure.Data
             }
 
             query = spec.Includes.Aggregate(query, (current, include) => current.Include(include));
+
+            if (spec.IsPagingEnabled)
+            {
+                query = query.Skip(spec.Skip).Take(spec.Take);
+            }
 
             return query;
         }

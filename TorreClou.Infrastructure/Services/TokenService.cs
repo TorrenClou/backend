@@ -6,8 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Interfaces;
-using TorreClou.Core.Entities;
-using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Infrastructure.Services
 {
