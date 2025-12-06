@@ -141,9 +141,6 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<int>("JobId")
                         .HasColumnType("integer");
 
-                    b.Property<string>("PaymentGatewayId")
-                        .HasColumnType("text");
-
                     b.Property<string>("PricingSnapshotJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -154,10 +151,18 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("WalletTransactionId")
+                        .HasColumnType("text");
+
+                    b.Property<int>("WalletTransactionId1")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("JobId")
                         .IsUnique();
+
+                    b.HasIndex("WalletTransactionId1");
 
                     b.ToTable("Invoices");
                 });
@@ -222,6 +227,10 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.Property<string>("RemoteFileId")
                         .HasColumnType("text");
+
+                    b.PrimitiveCollection<int[]>("SelectedFileIndices")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
 
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -536,7 +545,15 @@ namespace TorreClou.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("TorreClou.Core.Entities.Financals.WalletTransaction", "WalletTransaction")
+                        .WithMany()
+                        .HasForeignKey("WalletTransactionId1")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.Navigation("Job");
+
+                    b.Navigation("WalletTransaction");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Financals.WalletTransaction", b =>
