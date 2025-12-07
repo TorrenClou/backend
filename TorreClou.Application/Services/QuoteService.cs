@@ -23,7 +23,7 @@ namespace TorreClou.Application.Services
 
     public class QuoteService(IUnitOfWork unitOfWork, IPricingEngine pricingEngine, 
         ITorrentService torrentService,
-        ITrackerScraper trackerScraper, ITorrentParser torrentParser, IVoucherService voucherService) : IQuoteService
+        ITrackerScraper trackerScraper, ITorrentParser torrentParser, IVoucherService voucherService, ITorrentHealthService torrentHealthService) : IQuoteService
     {
         private  Result<Stream> ValidateTorrentFile(Stream torrentFile, string torrentFileName)
         {
@@ -127,20 +127,24 @@ namespace TorreClou.Application.Services
             long totalSizeInBytes = totalSizeResult.Value;
 
             var user = await unitOfWork.Repository<User>().GetByIdAsync(userId);
-            int seeders = await GetRealTimeSeeders(torrentInfo.InfoHash, null);
+            var scrape = await trackerScraper.GetScrapeResultsAsync(
+                torrentInfo.InfoHash,
+                torrentInfo.Trackers
+            );
+            var health = torrentHealthService.Compute(scrape);
 
             // 3) New snapshot for current request
             var newSnapshot = pricingEngine.CalculatePrice(
                 totalSizeInBytes,
                 user.Region,
-                seeders
+                scrape.Seeders
             );
 
             // توحيد الداتا جوه الـ snapshot
             newSnapshot.TotalSizeInBytes = totalSizeInBytes;
             newSnapshot.SelectedFiles = request.SelectedFileIndices?.ToList() ?? new List<int>();
-            newSnapshot.SeedersCount = seeders;
-            newSnapshot.UserRegion = user.Region.ToString(); // لو enum
+            newSnapshot.SeedersCount = scrape.Seeders;
+            newSnapshot.UserRegion = user.Region.ToString(); 
 
             // 4) Try to reuse existing invoice
             var existingInvoiceResult = await FindInvoiceByTorrentAndUserId(torrentInfo.InfoHash, userId);
@@ -155,7 +159,6 @@ namespace TorreClou.Application.Services
 
                 if (sameQuote)
                 {
-                    // ✅ رجّع نفس الفاتورة، وكل القيم من الـ Invoice / Snapshot
                     return Result.Success(new QuoteResponseDto
                     {
                         IsReadyToDownload = true,
@@ -168,6 +171,7 @@ namespace TorreClou.Application.Services
                         InfoHash = existingInvoice.TorrentFile.InfoHash,
                         PricingDetails = existingSnapshot,
                         InvoiceId = existingInvoice.Id,
+                         TorrentHealth = health
                     });
                 }
                 else
@@ -182,7 +186,7 @@ namespace TorreClou.Application.Services
             {
                 InfoHash = torrentInfo.InfoHash,
                 FileName = torrentInfo.Name,
-                FileSize = torrentInfo.TotalSize,       // bytes
+                FileSize = torrentInfo.TotalSize,      
                 Files = torrentInfo.Files.Select(f => f.Path).ToArray(),
                 UploadedByUserId = userId
             });
@@ -201,7 +205,6 @@ namespace TorreClou.Application.Services
                 voucher = voucherResult.Value;
             }
 
-            // 8) Create new invoice (المبالغ بالمينيمم يونت – سنتس مثلاً)
             var originalPriceUsd = newSnapshot.FinalPrice;
 
             var invoiceResult = await CreateInvoiceAsync(
@@ -230,6 +233,7 @@ namespace TorreClou.Application.Services
                 InfoHash = invoice.TorrentFile.InfoHash,
                 PricingDetails = newSnapshot,
                 InvoiceId = invoice.Id,
+                TorrentHealth = health
             });
         }
 
@@ -284,20 +288,7 @@ namespace TorreClou.Application.Services
             return Result.Success(invoice);
         }
 
-        private async Task<int> GetRealTimeSeeders(string infoHash, List<string>? magnetTrackers)
-        {
-            List<string> defaultTrackers = [
-        "udp://tracker.opentrackr.org:1337/announce",
-        "udp://9.rarbg.com:2810/announce",
-        "udp://tracker.openbittorrent.com:80/announce",
-        "udp://tracker.tiny-vps.com:6969/announce"
-    ];
+    
 
-            // 2. Merge with magnet trackers (if any)
-            var allTrackers = defaultTrackers.Concat(magnetTrackers ?? []).Distinct();
-
-
-            return await trackerScraper.GetSeedersCountAsync(infoHash, allTrackers);
-        }
     }
 }
