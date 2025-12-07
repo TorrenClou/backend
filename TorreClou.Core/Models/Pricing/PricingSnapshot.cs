@@ -9,8 +9,6 @@ namespace TorreClou.Core.Models.Pricing
         public decimal BaseRatePerGb { get; set; }
         public string UserRegion { get; set; } = string.Empty;
         public double RegionMultiplier { get; set; }
-
-        public int SeedersCount { get; set; }
         public double HealthMultiplier { get; set; }
 
         public bool IsCacheHit { get; set; }

@@ -2,11 +2,11 @@ namespace TorreClou.Core.DTOs.Torrents
 {
     public record TorrentInfoDto
     {
-        public string Name { get; init; }
-        public string InfoHash { get; init; }
-        public long TotalSize { get; init; }
+        public string InfoHash { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public long TotalSize { get; set; }
+
         public List<TorrentFileDto> Files { get; init; } = new();
-        public bool IsMagnet { get; init; }
         public List<string> Trackers { get; init; } = new();
     }
 

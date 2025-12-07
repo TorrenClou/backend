@@ -17,6 +17,7 @@ namespace TorreClou.Application.Extensions
             services.AddScoped<ITorrentService, TorrentService>();
             services.AddScoped<IVoucherService, VoucherService>();
             services.AddScoped<IPricingEngine, PricingEngine>();
+            services.AddScoped<ITorrentHealthService, TorrentHealthService>();
 
             return services;
         }
