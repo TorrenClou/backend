@@ -1,18 +1,19 @@
-using System.Collections.Generic;
-using MonoTorrent;
 using TorreClou.Core.DTOs.Torrents;
+using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
+using TorreClou.Core.Specifications;
 
-namespace TorreClou.Application.Services
+namespace TorreClou.Application.Services.Torrent
 {
-    public class TorrentParserService : ITorrentParser
+    public class TorrentService(IUnitOfWork unitOfWork) : ITorrentService
     {
-        public Result<TorrentInfoDto> ParseTorrentFile(Stream fileStream)
+
+        public Result<TorrentInfoDto> GetTorrentInfoFromTorrentFile(Stream fileStream)
         {
             try
             {
-                var torrent = Torrent.Load(fileStream);
+                var torrent = MonoTorrent.Torrent.Load(fileStream);
 
                 // ----- Extract Trackers -----
                 var trackers = new List<string>();
@@ -29,14 +30,12 @@ namespace TorreClou.Application.Services
                     trackers.AddRange(list);
                 }
 
-                // - نحتفظ فقط بال UDP لأن scraper بتاعك شغال UDP بس
                 trackers = trackers
                     .Where(t => t.StartsWith("udp://", StringComparison.OrdinalIgnoreCase))
                     .Distinct()
                     .ToList();
 
 
-                // ----- Determine InfoHash (v1 only for tracker scrape) -----
                 string? hash = torrent.InfoHashes.V1?.ToHex();
 
                 if (string.IsNullOrEmpty(hash))
@@ -71,7 +70,8 @@ namespace TorreClou.Application.Services
                         Index = index,
                         Path = f.Path,
                         Size = f.Length
-                    }).ToList()
+                    }).ToList(),
+                  
                 };
 
                 return Result.Success(dto);
@@ -80,6 +80,26 @@ namespace TorreClou.Application.Services
             {
                 return Result<TorrentInfoDto>.Failure($"Corrupted torrent file: {ex.Message}");
             }
+        }
+
+
+        public async Task<Result<TorrentFile>> FindOrCreateTorrentFile(TorrentFile torrent)
+        {
+
+            var searchCriteria = new BaseSpecification<TorrentFile>(t => t.InfoHash == torrent.InfoHash && t.UploadedByUserId == torrent.UploadedByUserId);
+
+
+            var existingTorrent = await unitOfWork.Repository<TorrentFile>().GetEntityWithSpec(searchCriteria);
+
+            if (existingTorrent != null)
+            {
+                return Result.Success(existingTorrent);
+            }
+
+            unitOfWork.Repository<TorrentFile>().Add(torrent);
+            await unitOfWork.Complete();
+
+            return Result.Success(torrent);
         }
     }
 }

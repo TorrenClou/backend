@@ -1,4 +1,4 @@
-﻿namespace TorreClou.Core.Entities.Torrents
+﻿namespace TorreClou.Core.DTOs.Torrents
 {
     public class TorrentHealthMeasurements
     {
@@ -12,7 +12,7 @@
         public bool IsWeak { get; set; }
         public bool IsHealthy { get; set; }
 
-        public decimal HealthScore { get; set; }
+        public double HealthScore { get; set; }
     }
 
 }

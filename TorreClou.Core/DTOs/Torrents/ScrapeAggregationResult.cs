@@ -1,4 +1,4 @@
-namespace TorreClou.Core.Interfaces
+namespace TorreClou.Core.DTOs.Torrents
 {
     public class ScrapeAggregationResult
     {

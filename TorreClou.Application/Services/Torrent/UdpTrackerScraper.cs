@@ -4,7 +4,7 @@ using System.Net;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.DTOs.Torrents;
 
-namespace TorreClou.Application.Services
+namespace TorreClou.Application.Services.Torrent
 {
 
     public class UdpTrackerScraper : ITrackerScraper
@@ -32,7 +32,6 @@ namespace TorreClou.Application.Services
             int successCount = results.Count(r => r.Sucess);
             int trackerCount = results.Length;
 
-            // افضل rule: ناخد أعلى رقم من أي تراكر (مش مجموع)
             totalSeeders = results.Max(r => r.Seeders);
             totalLeechers = results.Max(r => r.Leechers);
             totalCompleted = results.Max(r => r.Completed);

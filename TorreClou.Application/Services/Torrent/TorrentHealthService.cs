@@ -1,7 +1,7 @@
-﻿using TorreClou.Core.Entities.Torrents;
+﻿using TorreClou.Core.DTOs.Torrents;
 using TorreClou.Core.Interfaces;
 
-namespace TorreClou.Application.Services
+namespace TorreClou.Application.Services.Torrent
 {
 
     public class TorrentHealthService : ITorrentHealthService
@@ -48,7 +48,7 @@ namespace TorreClou.Application.Services
                 IsDead = isDead,
                 IsWeak = isWeak,
                 IsHealthy = isHealthy,
-                HealthScore = Math.Round(score, 3)
+                HealthScore = (double)score
             };
         }
     }

@@ -14,16 +14,12 @@ using TorrentFile = TorreClou.Core.Entities.Torrents.TorrentFile;
 
 namespace TorreClou.Application.Services
 {
-    public interface IQuoteService
-    {
-        Task<Result<QuoteResponseDto>> GenerateQuoteAsync(QuoteRequestDto request, int userId, Stream torrentFile); 
-    }
 
     
 
     public class QuoteService(IUnitOfWork unitOfWork, IPricingEngine pricingEngine, 
         ITorrentService torrentService,
-        ITrackerScraper trackerScraper, ITorrentParser torrentParser, IVoucherService voucherService, ITorrentHealthService torrentHealthService) : IQuoteService
+        ITrackerScraper trackerScraper,  IVoucherService voucherService, ITorrentHealthService torrentHealthService) : IQuoteService
     {
         private  Result<Stream> ValidateTorrentFile(Stream torrentFile, string torrentFileName)
         {
@@ -50,19 +46,41 @@ namespace TorreClou.Application.Services
                            .SequenceEqual(newSnap.SelectedFiles.OrderBy(x => x))
                 );
 
-            bool same =
-                oldSnap.TotalSizeInBytes == newSnap.TotalSizeInBytes &&
-                sameSelectedFiles &&
-                oldSnap.BaseRatePerGb == newSnap.BaseRatePerGb &&
-                oldSnap.UserRegion == newSnap.UserRegion &&
-                Math.Abs(oldSnap.RegionMultiplier - newSnap.RegionMultiplier) < 0.0001 &&
-                Math.Abs(oldSnap.HealthMultiplier - newSnap.HealthMultiplier) < 0.0001 &&
-                oldSnap.IsCacheHit == newSnap.IsCacheHit &&
-                oldSnap.CacheDiscountAmount == newSnap.CacheDiscountAmount &&
-                oldSnap.FinalPrice == newSnap.FinalPrice;
+            if (!sameSelectedFiles)
+                return false;
 
-            return same;
+            // 2) نفس الحجم الفعلي بالـ bytes
+            if (oldSnap.TotalSizeInBytes != newSnap.TotalSizeInBytes)
+                return false;
+
+            // 3) نفس البايز ريت و المنطقة و الملتيبلاير بتاع المنطقة
+            if (oldSnap.BaseRatePerGb != newSnap.BaseRatePerGb)
+                return false;
+
+            if (!string.Equals(oldSnap.UserRegion, newSnap.UserRegion, StringComparison.Ordinal))
+                return false;
+
+            if (Math.Abs(oldSnap.RegionMultiplier - newSnap.RegionMultiplier) > 0.0001)
+                return false;
+
+            // 4) نفس حالة الكاش والخصم بتاع الكاش
+            if (oldSnap.IsCacheHit != newSnap.IsCacheHit)
+                return false;
+
+            if (oldSnap.CacheDiscountAmount != newSnap.CacheDiscountAmount)
+                return false;
+
+            // 5) نفس الـ HealthMultiplier (ده بيلمّ كل موضوع seeders/leechers/health)
+            if (Math.Abs(oldSnap.HealthMultiplier - newSnap.HealthMultiplier) > 0.0001)
+                return false;
+
+            // 6) والأهم: السعر النهائي نفسه
+            if (oldSnap.FinalPrice != newSnap.FinalPrice)
+                return false;
+
+            return true;
         }
+
 
 
         private Result<long> CalculateStorage(List<int>? SelectedFileIndices, TorrentInfoDto torrentInfo)
@@ -113,7 +131,7 @@ namespace TorreClou.Application.Services
             if (!torrentFileValidated.IsSuccess)
                 return Result<QuoteResponseDto>.Failure(torrentFileValidated.Error);
 
-            var torrentInfoResult = torrentParser.ParseTorrentFile(torrentFileValidated.Value);
+            var torrentInfoResult = torrentService.GetTorrentInfoFromTorrentFile(torrentFileValidated.Value);
             if (!torrentInfoResult.IsSuccess || string.IsNullOrEmpty(torrentInfoResult.Value.InfoHash))
                 return Result<QuoteResponseDto>.Failure("Can't get torrent info.");
 
@@ -137,13 +155,13 @@ namespace TorreClou.Application.Services
             var newSnapshot = pricingEngine.CalculatePrice(
                 totalSizeInBytes,
                 user.Region,
-                scrape.Seeders
+                health.HealthScore
             );
 
             // توحيد الداتا جوه الـ snapshot
             newSnapshot.TotalSizeInBytes = totalSizeInBytes;
             newSnapshot.SelectedFiles = request.SelectedFileIndices?.ToList() ?? new List<int>();
-            newSnapshot.SeedersCount = scrape.Seeders;
+            newSnapshot.HealthMultiplier = health.HealthScore;
             newSnapshot.UserRegion = user.Region.ToString(); 
 
             // 4) Try to reuse existing invoice
@@ -181,7 +199,6 @@ namespace TorreClou.Application.Services
                 }
             }
 
-            // 6) Save torrent (if needed)
             var torrentInDb = await torrentService.FindOrCreateTorrentFile(new()
             {
                 InfoHash = torrentInfo.InfoHash,
