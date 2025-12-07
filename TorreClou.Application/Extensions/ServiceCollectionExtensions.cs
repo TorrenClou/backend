@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using TorreClou.Application.Services;
+using TorreClou.Application.Services.Torrent;
 using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Application.Extensions

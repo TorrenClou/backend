@@ -4,13 +4,14 @@ using System.Security.Claims;
 using TorreClou.Application.Services;
 using TorreClou.Core.DTOs.Financal;
 using TorreClou.Core.DTOs.Torrents;
+using TorreClou.Core.Interfaces;
 
 namespace TorreClou.API.Controllers
 {
     [Route("api/torrents")]
     public class TorrentsController(
-        ITorrentService torrentService,
-        IQuoteService quoteService
+        IQuoteService quoteService,
+        ITorrentService torrentService
     ) : BaseApiController
     {
 
@@ -20,7 +21,7 @@ namespace TorreClou.API.Controllers
         {
             if (file == null || file.Length == 0) return BadRequest("No file uploaded.");
             using var stream = file.OpenReadStream();
-            var result =  torrentService.AnalyzeFile(stream);
+            var result =  torrentService.GetTorrentInfoFromTorrentFile(stream);
             return HandleResult(result);
         }
 

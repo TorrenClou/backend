@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using TorreClou.Application.Services;
+using TorreClou.Application.Services.Torrent;
 using TorreClou.Core.Interfaces;
 using TorreClou.Infrastructure.Data;
 using TorreClou.Infrastructure.Interceptors;
@@ -24,7 +24,6 @@ namespace TorreClou.Infrastructure.Extensions
             services.Configure<CoinremitterSettings>(configuration.GetSection("Coinremitter"));
 
             services.AddScoped<ITokenService, TokenService>();
-            services.AddScoped<ITorrentParser, TorrentParserService>();
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {
                 var interceptor = sp.GetRequiredService<UpdateAuditableEntitiesInterceptor>();
