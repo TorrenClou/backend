@@ -48,21 +48,21 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<decimal>("FinalAmountInUSD")
                         .HasColumnType("numeric");
 
-                    b.Property<bool>("IsPaid")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsRefunded")
-                        .HasColumnType("boolean");
-
                     b.Property<int?>("JobId")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("OriginalAmountInUSD")
                         .HasColumnType("numeric");
 
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("PricingSnapshotJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
+
+                    b.Property<DateTime?>("RefundedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("TorrentFileId")
                         .HasColumnType("integer");
