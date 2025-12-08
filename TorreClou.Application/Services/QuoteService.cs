@@ -155,14 +155,11 @@ namespace TorreClou.Application.Services
             var newSnapshot = pricingEngine.CalculatePrice(
                 totalSizeInBytes,
                 user.Region,
-                health.HealthScore
+                1 + (1 - health.HealthScore)
             );
 
             // توحيد الداتا جوه الـ snapshot
-            newSnapshot.TotalSizeInBytes = totalSizeInBytes;
             newSnapshot.SelectedFiles = request.SelectedFileIndices?.ToList() ?? new List<int>();
-            newSnapshot.HealthMultiplier = health.HealthScore;
-            newSnapshot.UserRegion = user.Region.ToString(); 
 
             // 4) Try to reuse existing invoice
             var existingInvoiceResult = await FindInvoiceByTorrentAndUserId(torrentInfo.InfoHash, userId);
