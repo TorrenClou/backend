@@ -20,7 +20,7 @@ namespace TorreClou.Infrastructure.Data
         public DbSet<User> Users { get; set; }
         public DbSet<UserStorageProfile> UserStorageProfiles { get; set; }
         public DbSet<WalletTransaction> WalletTransactions { get; set; }
-        public DbSet<TorrentFile> TorrentFiles { get; set; }
+        public DbSet<RequestedFile> RequestedFiles { get; set; }
         public DbSet<UserJob> UserJobs { get; set; }
         public DbSet<Invoice> Invoices { get; set; }
         public DbSet<UserStrike> UserStrikes { get; set; }
@@ -48,7 +48,7 @@ namespace TorreClou.Infrastructure.Data
                 .Property(p => p.CredentialsJson)
                 .HasColumnType("jsonb");
 
-            builder.Entity<TorrentFile>()
+            builder.Entity<RequestedFile>()
                 .HasIndex(t => t.InfoHash).IsUnique();
 
 
@@ -119,10 +119,10 @@ namespace TorreClou.Infrastructure.Data
                 .Property(e => e.SelectedFileIndices)
                 .HasColumnType("integer[]");
 
-            builder.Entity<TorrentFile>()
+            builder.Entity<RequestedFile>()
                 .HasIndex(t => t.InfoHash).IsUnique();
 
-            builder.Entity<TorrentFile>()
+            builder.Entity<RequestedFile>()
                 .HasOne(t => t.UploadedByUser)
                 .WithMany(u => u.UploadedTorrentFiles)
                 .HasForeignKey(t => t.UploadedByUserId);

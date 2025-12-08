@@ -16,7 +16,7 @@ namespace TorreClou.Core.Models.Pricing
 
         public string? VoucherCode { get; set; }
 
-        public TorrentFile TorrentFile { get; set; } = null!;
+        public RequestedFile TorrentFile { get; set; } = null!;
 
         public string InfoHash { get; set; } = string.Empty;
     }
