@@ -6,7 +6,9 @@
 
     public enum StorageProviderType { GoogleDrive, OneDrive, AwsS3, Dropbox }
 
-    public enum TransactionType { DEPOSIT, PAYMENT, REFUND, ADMIN_ADJUSTMENT, BONUS }
+    public enum TransactionType { DEPOSIT, PAYMENT, REFUND, ADMIN_ADJUSTMENT, BONUS,
+        DEDUCTION
+    }
 
     public enum FileStatus { PENDING, DOWNLOADING, READY, CORRUPTED, DELETED }
 

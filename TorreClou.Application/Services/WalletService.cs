@@ -191,5 +191,36 @@ namespace TorreClou.Application.Services
                 PageSize = pageSize
             });
         }
+
+        public async Task<Result<int>> DetuctBalanceAync(int userId, decimal amount, string description)
+        {
+            if (amount <= 0)
+            {
+                return Result<int>.Failure("DEDUCTION_ERROR", "Deduction amount must be greater than zero.");
+            }
+            var balanceResult = await GetUserBalanceAsync(userId);
+            if (balanceResult.IsFailure)
+            {
+                return Result<int>.Failure(balanceResult.Error);
+            }
+            var currentBalance = balanceResult.Value;
+            if (currentBalance < amount)
+            {
+                return Result<int>.Failure("INSUFFICIENT_FUNDS", "User has insufficient funds for this deduction.");
+            }
+            var transaction = new WalletTransaction
+            {
+                UserId = userId,
+                Amount = -amount,
+                Type = TransactionType.DEDUCTION,
+                Description = description,
+                CreatedAt = DateTime.UtcNow
+            };
+            unitOfWork.Repository<WalletTransaction>().Add(transaction);
+            var result = await unitOfWork.Complete();
+            if (result <= 0)
+                return Result<int>.Failure("DATABASE_ERROR", "Failed to save deduction transaction to database.");
+            return Result.Success(transaction.Id);
+        }
     }
 }

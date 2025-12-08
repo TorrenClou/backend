@@ -24,7 +24,7 @@ namespace TorreClou.Core.Entities
         public ICollection<WalletTransaction> WalletTransactions { get; set; } = [];
         public ICollection<UserJob> Jobs { get; set; } = [];
         public ICollection<UserStrike> Strikes { get; set; } = [];
-        public ICollection<TorrentFile> UploadedTorrentFiles { get; set; } = [];
+        public ICollection<RequestedFile> UploadedTorrentFiles { get; set; } = [];
 
         public decimal GetCurrentBalance() => WalletTransactions?.Sum(t => t.Amount) ?? 0;
     }

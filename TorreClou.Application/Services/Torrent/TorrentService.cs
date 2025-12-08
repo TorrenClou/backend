@@ -4,7 +4,7 @@ using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
-using TorrentFile = TorreClou.Core.Entities.Torrents.TorrentFile;
+using RequestedFile = TorreClou.Core.Entities.Torrents.RequestedFile;
 
 namespace TorreClou.Application.Services.Torrent
 {
@@ -89,20 +89,20 @@ namespace TorreClou.Application.Services.Torrent
         }
 
 
-        public async Task<Result<TorrentFile>> FindOrCreateTorrentFile(TorrentFile torrent)
+        public async Task<Result<RequestedFile>> FindOrCreateTorrentFile(RequestedFile torrent)
         {
 
-            var searchCriteria = new BaseSpecification<TorrentFile>(t => t.InfoHash == torrent.InfoHash && t.UploadedByUserId == torrent.UploadedByUserId);
+            var searchCriteria = new BaseSpecification<RequestedFile>(t => t.InfoHash == torrent.InfoHash && t.UploadedByUserId == torrent.UploadedByUserId);
 
 
-            var existingTorrent = await unitOfWork.Repository<TorrentFile>().GetEntityWithSpec(searchCriteria);
+            var existingTorrent = await unitOfWork.Repository<RequestedFile>().GetEntityWithSpec(searchCriteria);
 
             if (existingTorrent != null)
             {
                 return Result.Success(existingTorrent);
             }
 
-            unitOfWork.Repository<TorrentFile>().Add(torrent);
+            unitOfWork.Repository<RequestedFile>().Add(torrent);
             await unitOfWork.Complete();
 
             return Result.Success(torrent);

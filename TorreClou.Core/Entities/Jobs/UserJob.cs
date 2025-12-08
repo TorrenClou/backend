@@ -12,7 +12,7 @@ namespace TorreClou.Core.Entities.Jobs
         public User User { get; set; } = null!;
 
         public int TorrentFileId { get; set; }
-        public TorrentFile TorrentFile { get; set; } = null!;
+        public RequestedFile TorrentFile { get; set; } = null!;
 
         public int StorageProfileId { get; set; }
         public UserStorageProfile StorageProfile { get; set; } = null!;

@@ -1,4 +1,6 @@
 ﻿using System.Text.Json;
+using System.Threading.Tasks;
+using TorreClou.Core.DTOs.Financal;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Entities.Financals;
 using TorreClou.Core.Entities.Marketing;
@@ -12,6 +14,7 @@ using TorreClou.Core.Specifications;
 namespace TorreClou.Application.Services
 {
     public class QuotePricingService(
+        IWalletService walletService,
         IUnitOfWork unitOfWork,
         IPricingEngine pricingEngine,
         IVoucherService voucherService) : IQuotePricingService
@@ -96,7 +99,50 @@ namespace TorreClou.Application.Services
                 IsReused = false
             });
         }
+        public async Task<Result<InvoicePaymentResult>> Pay(int InvoiceId)
+        {
+            // Find Invoice By Speces
 
+            var PayInvoiceSepc = new BaseSpecification<Invoice>(i => i.Id == InvoiceId);
+            var invoice = await unitOfWork.Repository<Invoice>().GetEntityWithSpec(PayInvoiceSepc);
+            if (invoice == null)
+                return Result<InvoicePaymentResult>.Failure("INVOICE_NOT_FOUND", "Invoice not found.");
+            if (invoice.IsExpired || invoice.IsPaid || invoice.IsRefunded)
+                return Result<InvoicePaymentResult>.Failure("INVOICE_INVALID", "Invoice is not valid for payment.");
+
+            // Check Balance 
+
+            var walletBalanceResult = await walletService.GetUserBalanceAsync(invoice.UserId);
+            if (walletBalanceResult.IsFailure)
+                return Result<InvoicePaymentResult>.Failure(walletBalanceResult.Error);
+            var walletBalance = walletBalanceResult.Value;
+            if (walletBalance < invoice.FinalAmountInNCurrency)
+                return Result<InvoicePaymentResult>.Failure("INSUFFICIENT_FUNDS", "Insufficient funds in wallet.");
+            // Deduct Balance
+            var deductResult = await walletService.DetuctBalanceAync(
+                invoice.UserId,
+                invoice.FinalAmountInNCurrency,
+                $"Payment for Invoice #{invoice.Id}"
+            );
+
+            if (deductResult.IsFailure)
+                return Result<InvoicePaymentResult>.Failure(deductResult.Error);
+
+            // Mark Invoice as Paid
+            invoice.IsPaid = true;
+            invoice.WalletTransactionId = deductResult.Value;
+            await unitOfWork.Complete();
+            // FIRE EVENT TO START THE JOB
+
+
+            return Result.Success(new InvoicePaymentResult
+            {
+                InvoiceId = invoice.Id,
+                WalletTransaction = deductResult.Value,
+                TotalAmountInNCurruncy = invoice.FinalAmountInNCurrency
+            });
+
+        }
         // ==================== Internal helpers ====================
 
         private async Task<Result<Invoice>> FindActiveInvoiceByTorrentAndUserAsync(
@@ -163,7 +209,7 @@ namespace TorreClou.Application.Services
             int userId,
             decimal originalAmountInUsd,
             PricingSnapshot pricingSnapshot,
-            TorrentFile torrentFile,
+            RequestedFile torrentFile,
             Voucher? voucher = null)
         {
             if (originalAmountInUsd <= 0)

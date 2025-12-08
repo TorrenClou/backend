@@ -113,7 +113,8 @@ namespace TorreClou.Application.Services.Torrent
                 FileName = torrentInfo.Name,
                 FileSize = torrentInfo.TotalSize,
                 Files = torrentInfo.Files.Select(f => f.Path).ToArray(),
-                UploadedByUserId = userId
+                UploadedByUserId = userId,
+                FileType = "Torrent"
             });
             if (torrentInDbResult.IsFailure)
                 return Result<QuoteResponseDto>.Failure("Failed to save torrent information.");

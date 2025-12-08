@@ -431,7 +431,7 @@ namespace TorreClou.Infrastructure.Migrations
                     b.ToTable("Voucher");
                 });
 
-            modelBuilder.Entity("TorreClou.Core.Entities.Torrents.TorrentFile", b =>
+            modelBuilder.Entity("TorreClou.Core.Entities.Torrents.RequestedFile", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -448,6 +448,10 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.Property<long>("FileSize")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("FileType")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.PrimitiveCollection<string[]>("Files")
                         .IsRequired()
@@ -470,7 +474,7 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasIndex("UploadedByUserId");
 
-                    b.ToTable("TorrentFiles");
+                    b.ToTable("RequestedFiles");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.User", b =>
@@ -532,7 +536,7 @@ namespace TorreClou.Infrastructure.Migrations
                         .WithOne("Invoice")
                         .HasForeignKey("Invoice", "JobId");
 
-                    b.HasOne("TorreClou.Core.Entities.Torrents.TorrentFile", "TorrentFile")
+                    b.HasOne("TorreClou.Core.Entities.Torrents.RequestedFile", "TorrentFile")
                         .WithMany()
                         .HasForeignKey("TorrentFileId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -596,7 +600,7 @@ namespace TorreClou.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("TorreClou.Core.Entities.Torrents.TorrentFile", "TorrentFile")
+                    b.HasOne("TorreClou.Core.Entities.Torrents.RequestedFile", "TorrentFile")
                         .WithMany()
                         .HasForeignKey("TorrentFileId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -645,7 +649,7 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Navigation("Voucher");
                 });
 
-            modelBuilder.Entity("TorreClou.Core.Entities.Torrents.TorrentFile", b =>
+            modelBuilder.Entity("TorreClou.Core.Entities.Torrents.RequestedFile", b =>
                 {
                     b.HasOne("TorreClou.Core.Entities.User", "UploadedByUser")
                         .WithMany("UploadedTorrentFiles")

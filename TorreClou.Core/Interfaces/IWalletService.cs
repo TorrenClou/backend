@@ -13,6 +13,8 @@ namespace TorreClou.Core.Interfaces
         // معرفة الرصيد الحالي
         Task<Result<decimal>> GetUserBalanceAsync(int userId);
 
+        Task<Result<int>> DetuctBalanceAync(int userId, decimal amount, string description);
+
         // User: Get paginated transactions
         Task<Result<PaginatedResult<WalletTransactionDto>>> GetUserTransactionsAsync(int userId, int pageNumber, int pageSize);
 
