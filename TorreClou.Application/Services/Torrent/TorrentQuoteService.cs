@@ -106,7 +106,8 @@ namespace TorreClou.Application.Services.Torrent
             newSnapshot.TotalSizeInBytes = totalSizeInBytes;
 
 
-            // 4) Try to reuse existing invoice
+            // 4) Try to reuse existing invoice - reset stream position for upload
+            torrentFile.Position = 0;
             var torrentInDbResult = await torrentService.FindOrCreateTorrentFile(new()
             {
                 InfoHash = torrentInfo.InfoHash,
@@ -115,7 +116,7 @@ namespace TorreClou.Application.Services.Torrent
                 Files = torrentInfo.Files.Select(f => f.Path).ToArray(),
                 UploadedByUserId = userId,
                 FileType = "Torrent"
-            });
+            }, torrentFile);
             if (torrentInDbResult.IsFailure)
                 return Result<QuoteResponseDto>.Failure("Failed to save torrent information.");
             var pricingRequest = new QuotePricingRequest
