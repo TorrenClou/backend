@@ -24,6 +24,10 @@ namespace TorreClou.Infrastructure.Extensions
             services.AddHttpClient<IPaymentGateway, CoinremitterService>();
             services.Configure<CoinremitterSettings>(configuration.GetSection("Coinremitter"));
 
+            // Backblaze B2 Storage
+            services.Configure<BackblazeSettings>(configuration.GetSection("Backblaze"));
+            services.AddSingleton<IBlobStorageService, BackblazeStorageService>();
+
             // Redis
             var redisSettings = configuration.GetSection("Redis").Get<RedisSettings>() ?? new RedisSettings();
             services.AddSingleton<IConnectionMultiplexer>(

@@ -8,7 +8,7 @@ using RequestedFile = TorreClou.Core.Entities.Torrents.RequestedFile;
 
 namespace TorreClou.Application.Services.Torrent
 {
-    public class TorrentService(IUnitOfWork unitOfWork, ITrackerScraper trackerScraper) : ITorrentService
+    public class TorrentService(IUnitOfWork unitOfWork, ITrackerScraper trackerScraper, IBlobStorageService blobStorageService) : ITorrentService
     {
 
         public async Task<Result<TorrentInfoDto>> GetTorrentInfoFromTorrentFileAsync(Stream fileStream)
@@ -89,17 +89,48 @@ namespace TorreClou.Application.Services.Torrent
         }
 
 
-        public async Task<Result<RequestedFile>> FindOrCreateTorrentFile(RequestedFile torrent)
+        public async Task<Result<RequestedFile>> FindOrCreateTorrentFile(RequestedFile torrent, Stream? fileStream = null)
         {
-
             var searchCriteria = new BaseSpecification<RequestedFile>(t => t.InfoHash == torrent.InfoHash && t.UploadedByUserId == torrent.UploadedByUserId);
-
 
             var existingTorrent = await unitOfWork.Repository<RequestedFile>().GetEntityWithSpec(searchCriteria);
 
             if (existingTorrent != null)
             {
+                // If file exists but has no DirectUrl and we have a stream, upload it
+                if (string.IsNullOrEmpty(existingTorrent.DirectUrl) && fileStream != null)
+                {
+                    fileStream.Position = 0;
+                    var uploadResult = await blobStorageService.UploadAsync(
+                        fileStream,
+                        $"{existingTorrent.InfoHash}.torrent",
+                        "application/x-bittorrent"
+                    );
+
+                    if (uploadResult.IsSuccess)
+                    {
+                        existingTorrent.DirectUrl = uploadResult.Value;
+                        await unitOfWork.Complete();
+                    }
+                }
+
                 return Result.Success(existingTorrent);
+            }
+
+            // Upload file to blob storage if stream is provided
+            if (fileStream != null)
+            {
+                fileStream.Position = 0;
+                var uploadResult = await blobStorageService.UploadAsync(
+                    fileStream,
+                    $"{torrent.InfoHash}.torrent",
+                    "application/x-bittorrent"
+                );
+
+                if (uploadResult.IsSuccess)
+                {
+                    torrent.DirectUrl = uploadResult.Value;
+                }
             }
 
             unitOfWork.Repository<RequestedFile>().Add(torrent);
