@@ -17,7 +17,8 @@ namespace TorreClou.Application.Services
         IWalletService walletService,
         IUnitOfWork unitOfWork,
         IPricingEngine pricingEngine,
-        IVoucherService voucherService) : IQuotePricingService
+        IVoucherService voucherService,
+        IJobService jobService) : IQuotePricingService
     {
         public async Task<Result<QuotePricingResult>> GenerateOrReuseInvoiceAsync(QuotePricingRequest request)
         {
@@ -132,14 +133,22 @@ namespace TorreClou.Application.Services
             invoice.PaidAt = DateTime.UtcNow;
             invoice.WalletTransactionId = deductResult.Value;
             await unitOfWork.Complete();
-            // FIRE EVENT TO START THE JOB
 
+            // Create and dispatch the job
+            var jobResult = await jobService.CreateAndDispatchJobAsync(invoice.Id, invoice.UserId);
+            if (jobResult.IsFailure)
+                return Result<InvoicePaymentResult>.Failure(jobResult.Error);
+
+            var job = jobResult.Value;
 
             return Result.Success(new InvoicePaymentResult
             {
                 InvoiceId = invoice.Id,
+                JobId = job.JobId,
                 WalletTransaction = deductResult.Value,
-                TotalAmountInNCurruncy = invoice.FinalAmountInNCurrency
+                TotalAmountInNCurruncy = invoice.FinalAmountInNCurrency,
+                HasStorageProfileWarning = job.HasStorageProfileWarning,
+                StorageProfileWarningMessage = job.StorageProfileWarningMessage
             });
 
         }

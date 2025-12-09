@@ -234,11 +234,14 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CurrentState")
+                        .HasColumnType("text");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
-                    b.Property<string>("RemoteFileId")
-                        .HasColumnType("text");
+                    b.Property<int>("RequestFileId")
+                        .HasColumnType("integer");
 
                     b.PrimitiveCollection<int[]>("SelectedFileIndices")
                         .IsRequired()
@@ -254,9 +257,6 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<int>("StorageProfileId")
                         .HasColumnType("integer");
 
-                    b.Property<int>("TorrentFileId")
-                        .HasColumnType("integer");
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -265,9 +265,9 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StorageProfileId");
+                    b.HasIndex("RequestFileId");
 
-                    b.HasIndex("TorrentFileId");
+                    b.HasIndex("StorageProfileId");
 
                     b.HasIndex("UserId");
 
@@ -594,15 +594,15 @@ namespace TorreClou.Infrastructure.Migrations
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
                 {
-                    b.HasOne("TorreClou.Core.Entities.Jobs.UserStorageProfile", "StorageProfile")
+                    b.HasOne("TorreClou.Core.Entities.Torrents.RequestedFile", "RequestFile")
                         .WithMany()
-                        .HasForeignKey("StorageProfileId")
+                        .HasForeignKey("RequestFileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("TorreClou.Core.Entities.Torrents.RequestedFile", "TorrentFile")
+                    b.HasOne("TorreClou.Core.Entities.Jobs.UserStorageProfile", "StorageProfile")
                         .WithMany()
-                        .HasForeignKey("TorrentFileId")
+                        .HasForeignKey("StorageProfileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -612,9 +612,9 @@ namespace TorreClou.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("StorageProfile");
+                    b.Navigation("RequestFile");
 
-                    b.Navigation("TorrentFile");
+                    b.Navigation("StorageProfile");
 
                     b.Navigation("User");
                 });

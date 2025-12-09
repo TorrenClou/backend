@@ -20,6 +20,7 @@ namespace TorreClou.Application.Extensions
             services.AddScoped<IPricingEngine, PricingEngine>();
             services.AddScoped<ITorrentHealthService, TorrentHealthService>();
             services.AddScoped<IQuotePricingService, QuotePricingService>();
+            services.AddScoped<IJobService, JobService>();
 
             return services;
         }

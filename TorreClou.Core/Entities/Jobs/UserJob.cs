@@ -11,17 +11,18 @@ namespace TorreClou.Core.Entities.Jobs
         public int UserId { get; set; }
         public User User { get; set; } = null!;
 
-        public int TorrentFileId { get; set; }
-        public RequestedFile TorrentFile { get; set; } = null!;
 
         public int StorageProfileId { get; set; }
         public UserStorageProfile StorageProfile { get; set; } = null!;
 
         public JobStatus Status { get; set; } = JobStatus.QUEUED;
 
-        public string? RemoteFileId { get; set; }
+        public int RequestFileId { get; set; }
+
+        public RequestedFile RequestFile { get; set; } = null!;
 
         public string? ErrorMessage { get; set; }
+        public string? CurrentState { get; set; }
 
         public DateTime? StartedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
