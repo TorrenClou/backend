@@ -228,6 +228,9 @@ namespace TorreClou.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<long>("BytesDownloaded")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -237,8 +240,17 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<string>("CurrentState")
                         .HasColumnType("text");
 
+                    b.Property<string>("DownloadPath")
+                        .HasColumnType("text");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
+
+                    b.Property<string>("HangfireJobId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastHeartbeat")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("RequestFileId")
                         .HasColumnType("integer");
@@ -256,6 +268,13 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.Property<int>("StorageProfileId")
                         .HasColumnType("integer");
+
+                    b.Property<long>("TotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
