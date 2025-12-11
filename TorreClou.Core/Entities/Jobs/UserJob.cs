@@ -3,10 +3,11 @@ using TorreClou.Core.Enums;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Entities.Financals;
+using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Core.Entities.Jobs
 {
-    public class UserJob : BaseEntity
+    public class UserJob : BaseEntity, IRecoverableJob
     {
         public int UserId { get; set; }
         public User User { get; set; } = null!;

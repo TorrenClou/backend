@@ -3,41 +3,54 @@ using Hangfire.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using TorreClou.Core.Entities.Jobs;
+using Microsoft.Extensions.Options;
+using TorreClou.Core.Entities;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
+using TorreClou.Core.Options;
 using TorreClou.Core.Specifications;
 
-namespace TorreClou.Worker.Services
+namespace TorreClou.Infrastructure.Services
 {
     /// <summary>
-    /// Continuous background service that monitors job health and recovers orphaned jobs.
-    /// Runs every 2 minutes to detect jobs that:
+    /// Generic background service that monitors job health and recovers orphaned jobs.
+    /// Works with any entity implementing IRecoverableJob that extends BaseEntity.
+    /// Runs periodically to detect jobs that:
     /// - Are stuck in PROCESSING/UPLOADING with stale heartbeat
     /// - Have Hangfire jobs that failed/succeeded but DB wasn't updated
+    /// Uses strategy pattern for job-type-specific recovery logic.
     /// </summary>
-    public class JobHealthMonitor : BackgroundService
+    /// <typeparam name="TJob">The job entity type extending BaseEntity and implementing IRecoverableJob</typeparam>
+    public class JobHealthMonitor<TJob> : BackgroundService
+        where TJob : BaseEntity, IRecoverableJob
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly ILogger<JobHealthMonitor> _logger;
-
-        // How often to check for orphaned jobs
-        private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(2);
-
-        // Jobs not updated in this duration are considered orphaned
-        private static readonly TimeSpan StaleJobThreshold = TimeSpan.FromMinutes(5);
+        private readonly ILogger<JobHealthMonitor<TJob>> _logger;
+        private readonly Dictionary<JobType, IJobRecoveryStrategy> _strategies;
+        private readonly JobHealthMonitorOptions _options;
 
         public JobHealthMonitor(
             IServiceScopeFactory serviceScopeFactory,
-            ILogger<JobHealthMonitor> logger)
+            ILogger<JobHealthMonitor<TJob>> logger,
+            IEnumerable<IJobRecoveryStrategy> strategies,
+            IOptions<JobHealthMonitorOptions> options)
         {
             _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
+            _strategies = strategies.ToDictionary(s => s.SupportedJobType);
+            _options = options.Value;
+
+            _logger.LogInformation(
+                "[HEALTH] JobHealthMonitor<{JobType}> initialized | Strategies: {Strategies} | CheckInterval: {CheckInterval} | StaleThreshold: {StaleThreshold}",
+                typeof(TJob).Name,
+                string.Join(", ", _strategies.Keys),
+                _options.CheckInterval,
+                _options.StaleJobThreshold);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("[HEALTH] Job health monitor started");
+            _logger.LogInformation("[HEALTH] Job health monitor started for {JobType}", typeof(TJob).Name);
 
             // Initial recovery on startup
             await RecoverOrphanedJobsAsync(stoppingToken);
@@ -47,7 +60,7 @@ namespace TorreClou.Worker.Services
             {
                 try
                 {
-                    await Task.Delay(CheckInterval, stoppingToken);
+                    await Task.Delay(_options.CheckInterval, stoppingToken);
                     await RecoverOrphanedJobsAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -56,11 +69,11 @@ namespace TorreClou.Worker.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[HEALTH] Error during health check. Will retry in {Interval}", CheckInterval);
+                    _logger.LogError(ex, "[HEALTH] Error during health check. Will retry in {Interval}", _options.CheckInterval);
                 }
             }
 
-            _logger.LogInformation("[HEALTH] Job health monitor stopped");
+            _logger.LogInformation("[HEALTH] Job health monitor stopped for {JobType}", typeof(TJob).Name);
         }
 
         private async Task RecoverOrphanedJobsAsync(CancellationToken cancellationToken)
@@ -70,17 +83,17 @@ namespace TorreClou.Worker.Services
             var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
             var monitoringApi = JobStorage.Current?.GetMonitoringApi();
 
-            var staleTime = DateTime.UtcNow - StaleJobThreshold;
+            var staleTime = DateTime.UtcNow - _options.StaleJobThreshold;
 
             // Find jobs stuck in PROCESSING or UPLOADING with stale heartbeat
-            var stuckJobsSpec = new BaseSpecification<UserJob>(j =>
+            var stuckJobsSpec = new BaseSpecification<TJob>(j =>
                 (j.Status == JobStatus.PROCESSING || j.Status == JobStatus.UPLOADING) &&
                 (
                     (j.LastHeartbeat != null && j.LastHeartbeat < staleTime) ||
                     (j.LastHeartbeat == null && j.StartedAt != null && j.StartedAt < staleTime)
                 ));
 
-            var stuckJobs = await unitOfWork.Repository<UserJob>().ListAsync(stuckJobsSpec);
+            var stuckJobs = await unitOfWork.Repository<TJob>().ListAsync(stuckJobsSpec);
 
             if (!stuckJobs.Any())
             {
@@ -98,8 +111,8 @@ namespace TorreClou.Worker.Services
                 try
                 {
                     // Check Hangfire state if we have the job ID
-                    var shouldRecover = await ShouldRecoverJobAsync(job, monitoringApi);
-                    
+                    var shouldRecover = ShouldRecoverJob(job, monitoringApi);
+
                     if (!shouldRecover)
                     {
                         _logger.LogDebug("[HEALTH] Job still processing in Hangfire | JobId: {JobId}", job.Id);
@@ -115,56 +128,54 @@ namespace TorreClou.Worker.Services
             }
         }
 
-        private Task<bool> ShouldRecoverJobAsync(UserJob job, IMonitoringApi? monitoringApi)
+        private bool ShouldRecoverJob(IRecoverableJob job, IMonitoringApi? monitoringApi)
         {
             // If we don't have a Hangfire job ID, assume we should recover
             if (string.IsNullOrEmpty(job.HangfireJobId) || monitoringApi == null)
             {
-                return Task.FromResult(true);
+                return true;
             }
 
             try
             {
                 var hangfireJob = monitoringApi.JobDetails(job.HangfireJobId);
-                
+
                 if (hangfireJob == null)
                 {
                     _logger.LogWarning("[HEALTH] Hangfire job not found | JobId: {JobId} | HangfireJobId: {HangfireJobId}",
                         job.Id, job.HangfireJobId);
-                    return Task.FromResult(true);
+                    return true;
                 }
 
                 var currentState = hangfireJob.History.FirstOrDefault()?.StateName;
-                
+
                 // If job is still "Processing" in Hangfire but our DB heartbeat is stale,
                 // Hangfire hasn't detected the dead worker yet - force recovery
                 if (currentState == "Processing")
                 {
-                    // The job was already selected because it has a stale heartbeat,
-                    // so if Hangfire still shows Processing, the worker is dead
                     _logger.LogWarning(
                         "[HEALTH] Hangfire shows Processing but heartbeat is stale - forcing recovery | JobId: {JobId} | HangfireJobId: {HangfireJobId}",
                         job.Id, job.HangfireJobId);
-                    return Task.FromResult(true); // Force recovery
+                    return true;
                 }
-                
+
                 // Enqueued/Scheduled means job is pending in Hangfire - don't duplicate
                 if (currentState == "Enqueued" || currentState == "Scheduled")
                 {
-                    return Task.FromResult(false);
+                    return false;
                 }
 
                 // If Hangfire shows succeeded but DB shows processing - need to sync
                 if (currentState == "Succeeded" && job.Status == JobStatus.PROCESSING)
                 {
                     _logger.LogWarning("[HEALTH] Hangfire succeeded but DB shows processing | JobId: {JobId}", job.Id);
-                    return Task.FromResult(true);
+                    return true;
                 }
 
                 // If Hangfire shows failed, we should recover (re-enqueue)
                 if (currentState == "Failed" || currentState == "Deleted")
                 {
-                    return Task.FromResult(true);
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -172,33 +183,26 @@ namespace TorreClou.Worker.Services
                 _logger.LogWarning(ex, "[HEALTH] Failed to check Hangfire state | JobId: {JobId}", job.Id);
             }
 
-            return Task.FromResult(true);
+            return true;
         }
 
-        private async Task RecoverJobAsync(UserJob job, IUnitOfWork unitOfWork, IBackgroundJobClient backgroundJobClient)
+        private async Task RecoverJobAsync(IRecoverableJob job, IUnitOfWork unitOfWork, IBackgroundJobClient backgroundJobClient)
         {
-            _logger.LogInformation(
-                "[HEALTH] Recovering orphaned job | JobId: {JobId} | Status: {Status} | LastHeartbeat: {LastHeartbeat}",
-                job.Id, job.Status, job.LastHeartbeat);
+            // Find the appropriate strategy for this job type
+            if (!_strategies.TryGetValue(job.Type, out var strategy))
+            {
+                _logger.LogWarning(
+                    "[HEALTH] No recovery strategy registered for job type | JobId: {JobId} | Type: {Type}",
+                    job.Id, job.Type);
+                return;
+            }
 
-            // Determine what to re-enqueue based on current status
-            string hangfireJobId;
-            
-            if (job.Status == JobStatus.UPLOADING)
-            {
-                // Resume upload phase
-                job.CurrentState = "Recovering upload from interrupted state...";
-                hangfireJobId = backgroundJobClient.Enqueue<TorrentUploadJob>(
-                    service => service.ExecuteAsync(job.Id, CancellationToken.None));
-            }
-            else
-            {
-                // Resume download phase (PROCESSING or unknown state)
-                job.Status = JobStatus.QUEUED;
-                job.CurrentState = "Recovering download from interrupted state...";
-                hangfireJobId = backgroundJobClient.Enqueue<TorrentDownloadJob>(
-                    service => service.ExecuteAsync(job.Id, CancellationToken.None));
-            }
+            _logger.LogInformation(
+                "[HEALTH] Recovering orphaned job | JobId: {JobId} | Type: {Type} | Status: {Status} | LastHeartbeat: {LastHeartbeat}",
+                job.Id, job.Type, job.Status, job.LastHeartbeat);
+
+            // Delegate recovery to the strategy
+            var hangfireJobId = strategy.RecoverJob(job, backgroundJobClient);
 
             // Update job with new Hangfire job ID
             job.HangfireJobId = hangfireJobId;
