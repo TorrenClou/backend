@@ -1,10 +1,14 @@
 using StackExchange.Redis;
 using TorreClou.Worker;
 using TorreClou.Worker.Services;
+using TorreClou.Worker.Services.Strategies;
 using Microsoft.EntityFrameworkCore;
 using TorreClou.Infrastructure.Data;
 using TorreClou.Infrastructure.Repositories;
+using TorreClou.Infrastructure.Services;
 using TorreClou.Core.Interfaces;
+using TorreClou.Core.Options;
+using TorreClou.Core.Entities.Jobs;
 using TorreClou.Infrastructure.Interceptors;
 using Hangfire;
 using Hangfire.PostgreSql;
@@ -64,10 +68,20 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(
     ConnectionMultiplexer.Connect(redisConnectionString)
 );
 
+// Job Health Monitor Configuration
+builder.Services.Configure<JobHealthMonitorOptions>(options =>
+{
+    options.CheckInterval = TimeSpan.FromMinutes(2);
+    options.StaleJobThreshold = TimeSpan.FromMinutes(5);
+});
+
+// Recovery Strategies (for JobHealthMonitor)
+builder.Services.AddSingleton<IJobRecoveryStrategy, TorrentRecoveryStrategy>();
+
 // Background Services
 
-// 1. Job Health Monitor - Continuous monitoring and recovery of orphaned jobs
-builder.Services.AddHostedService<JobHealthMonitor>();
+// 1. Job Health Monitor - Generic monitoring and recovery of orphaned jobs (from Infrastructure)
+builder.Services.AddHostedService<JobHealthMonitor<UserJob>>();
 
 // 2. Torrent Worker - Redis stream consumer for new job events
 builder.Services.AddHostedService<TorrentWorker>();
