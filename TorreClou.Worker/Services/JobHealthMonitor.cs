@@ -129,7 +129,6 @@ namespace TorreClou.Worker.Services
                 
                 if (hangfireJob == null)
                 {
-                    // Job doesn't exist in Hangfire - recover it
                     _logger.LogWarning("[HEALTH] Hangfire job not found | JobId: {JobId} | HangfireJobId: {HangfireJobId}",
                         job.Id, job.HangfireJobId);
                     return Task.FromResult(true);
@@ -137,8 +136,20 @@ namespace TorreClou.Worker.Services
 
                 var currentState = hangfireJob.History.FirstOrDefault()?.StateName;
                 
-                // If job is still processing in Hangfire, don't recover
-                if (currentState == "Processing" || currentState == "Enqueued" || currentState == "Scheduled")
+                // If job is still "Processing" in Hangfire but our DB heartbeat is stale,
+                // Hangfire hasn't detected the dead worker yet - force recovery
+                if (currentState == "Processing")
+                {
+                    // The job was already selected because it has a stale heartbeat,
+                    // so if Hangfire still shows Processing, the worker is dead
+                    _logger.LogWarning(
+                        "[HEALTH] Hangfire shows Processing but heartbeat is stale - forcing recovery | JobId: {JobId} | HangfireJobId: {HangfireJobId}",
+                        job.Id, job.HangfireJobId);
+                    return Task.FromResult(true); // Force recovery
+                }
+                
+                // Enqueued/Scheduled means job is pending in Hangfire - don't duplicate
+                if (currentState == "Enqueued" || currentState == "Scheduled")
                 {
                     return Task.FromResult(false);
                 }
