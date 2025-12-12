@@ -11,7 +11,7 @@ using TorreClou.Core.Options;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Infrastructure.Interceptors;
 using Hangfire;
-using Hangfire.PostgreSql;
+using TorreClou.Worker.Filters;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -25,24 +25,18 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Repository and UnitOfWork
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
-builder.Services.AddScoped<IUnitOfWork, TorreClou.Infrastructure.Data.UnitOfWork>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // HttpClient for downloading torrent files
 builder.Services.AddHttpClient();
 
 // Hangfire configuration
 var hangfireConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddHangfire((provider, config) => config
-    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-    .UseSimpleAssemblyNameTypeSerializer()
-    .UseRecommendedSerializerSettings()
-    .UsePostgreSqlStorage(hangfireConnectionString, new PostgreSqlStorageOptions
-    {
-        SchemaName = "hangfire"
-    })
-    .UseFilter(new TorreClou.Worker.Filters.JobStateSyncFilter(
+builder.Services.AddHangfire((provider, config) => config .UseSimpleAssemblyNameTypeSerializer()  .UseRecommendedSerializerSettings()
+  
+    .UseFilter(new JobStateSyncFilter(
         provider.GetRequiredService<IServiceScopeFactory>(),
-        provider.GetRequiredService<ILogger<TorreClou.Worker.Filters.JobStateSyncFilter>>()
+        provider.GetRequiredService<ILogger<JobStateSyncFilter>>()
     ))
 );
 
@@ -55,7 +49,7 @@ builder.Services.AddHangfireServer(options =>
     options.HeartbeatInterval = TimeSpan.FromSeconds(15);
     options.SchedulePollingInterval = TimeSpan.FromSeconds(10);
 
-    options.Queues = new[] { "torrents", "default" };
+    options.Queues = ["torrents", "default"];
 });
 
 // Register Job Services (Hangfire jobs)

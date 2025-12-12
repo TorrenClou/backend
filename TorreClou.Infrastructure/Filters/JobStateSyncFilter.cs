@@ -1,23 +1,16 @@
+using Amazon.Runtime.Internal.Util;
 using Hangfire.Common;
 using Hangfire.States;
-using Hangfire.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Worker.Filters
 {
-    public class JobStateSyncFilter : IElectStateFilter
+    public class JobStateSyncFilter(IServiceScopeFactory scopeFactory, ILogger<JobStateSyncFilter> logger) : IElectStateFilter
     {
-        private readonly IServiceScopeFactory _scopeFactory;
-        private readonly ILogger<JobStateSyncFilter> _logger;
-
-        public JobStateSyncFilter(IServiceScopeFactory scopeFactory, ILogger<JobStateSyncFilter> logger)
-        {
-            _scopeFactory = scopeFactory;
-            _logger = logger;
-        }
-
         public void OnStateElection(ElectStateContext context)
         {
             // Only care if the job is moving to the FAILED state (e.g., retries exhausted)
@@ -40,13 +33,13 @@ namespace TorreClou.Worker.Filters
         {
             try
             {
-                using var scope = _scopeFactory.CreateScope();
+                using var scope = scopeFactory.CreateScope();
                 var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 var job = await unitOfWork.Repository<UserJob>().GetByIdAsync(jobId);
 
                 if (job != null && job.Status != JobStatus.FAILED)
                 {
-                    _logger.LogError("[Filter] Marking job {JobId} as FAILED due to Hangfire failure.", jobId);
+                    logger.LogError("[Filter] Marking job {JobId} as FAILED due to Hangfire failure.", jobId);
                     job.Status = JobStatus.FAILED;
                     job.ErrorMessage = $"System Failure: {error}";
                     job.CompletedAt = DateTime.UtcNow;
@@ -55,7 +48,7 @@ namespace TorreClou.Worker.Filters
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to sync job state for Job {JobId}", jobId);
+                logger.LogError(ex, "Failed to sync job state for Job {JobId}", jobId);
             }
         }
     }

@@ -1,8 +1,6 @@
 namespace TorreClou.Core.Options
 {
-    /// <summary>
-    /// Configuration options for JobHealthMonitor.
-    /// </summary>
+
     public class JobHealthMonitorOptions
     {
         /// <summary>
