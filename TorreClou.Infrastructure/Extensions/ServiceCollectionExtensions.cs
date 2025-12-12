@@ -9,6 +9,7 @@ using TorreClou.Infrastructure.Interceptors;
 using TorreClou.Infrastructure.Repositories;
 using TorreClou.Infrastructure.Services;
 using TorreClou.Infrastructure.Settings;
+using TorreClou.Core.Options;
 
 namespace TorreClou.Infrastructure.Extensions
 {
@@ -35,6 +36,11 @@ namespace TorreClou.Infrastructure.Extensions
             );
 
             services.AddScoped<ITokenService, TokenService>();
+
+            // Google Drive Services
+            services.Configure<GoogleDriveSettings>(configuration.GetSection("GoogleDrive"));
+            services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {
                 var interceptor = sp.GetRequiredService<UpdateAuditableEntitiesInterceptor>();
