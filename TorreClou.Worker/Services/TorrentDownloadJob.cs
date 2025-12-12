@@ -174,7 +174,7 @@ namespace TorreClou.Worker.Services
         {
             var settings = new EngineSettingsBuilder
             {
-                AllowPortForwarding = false,
+                
                 AutoSaveLoadDhtCache = true,
                 AutoSaveLoadFastResume = true,  // Enable FastResume for crash recovery
                 CacheDirectory = downloadPath    // Store .fresume files alongside downloads
