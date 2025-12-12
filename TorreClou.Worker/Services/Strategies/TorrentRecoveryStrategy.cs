@@ -5,10 +5,7 @@ using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Worker.Services.Strategies
 {
-    /// <summary>
-    /// Recovery strategy for Torrent jobs.
-    /// Handles re-enqueuing orphaned torrent download and upload jobs.
-    /// </summary>
+ 
     public class TorrentRecoveryStrategy : IJobRecoveryStrategy
     {
         public JobType SupportedJobType => JobType.Torrent;

@@ -2,11 +2,7 @@ using TorreClou.Core.Enums;
 
 namespace TorreClou.Core.Interfaces
 {
-    /// <summary>
-    /// Interface for jobs that can be monitored and recovered by JobHealthMonitor.
-    /// Any job entity implementing this interface can be automatically recovered
-    /// when it becomes orphaned (stale heartbeat, crashed worker, etc.)
-    /// </summary>
+    
     public interface IRecoverableJob
     {
         /// <summary>

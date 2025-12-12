@@ -4,6 +4,7 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;
 using Microsoft.Extensions.Logging;
 using Hangfire;
+using TorreClou.Infrastructure.Workers;
 
 namespace TorreClou.Worker.Services
 {
