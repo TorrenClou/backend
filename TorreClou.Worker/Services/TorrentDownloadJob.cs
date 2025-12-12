@@ -7,6 +7,7 @@ using MonoTorrent.Client;
 using Microsoft.Extensions.Logging;
 using Hangfire;
 using TorreClou.Infrastructure.Workers;
+using StackExchange.Redis;
 
 namespace TorreClou.Worker.Services
 {
@@ -18,7 +19,7 @@ namespace TorreClou.Worker.Services
         IUnitOfWork unitOfWork,
         IHttpClientFactory httpClientFactory,
         ILogger<TorrentDownloadJob> logger,
-        IBackgroundJobClient backgroundJobClient) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
+        IConnectionMultiplexer redis) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
     {
 
         // Save FastResume state every 30 seconds
@@ -308,14 +309,42 @@ namespace TorreClou.Worker.Services
             job.BytesDownloaded = job.TotalBytes;
             await UnitOfWork.Complete();
 
-            Logger.LogInformation("{LogPrefix} Chaining to upload job | JobId: {JobId}", LogPrefix, job.Id);
+            Logger.LogInformation("{LogPrefix} Publishing to upload stream | JobId: {JobId} | Provider: {Provider}", 
+                LogPrefix, job.Id, job.StorageProfile?.ProviderType);
 
-            // Chain to upload job
-            var uploadJobId = backgroundJobClient.Enqueue<TorrentUploadJob>(
-                service => service.ExecuteAsync(job.Id, CancellationToken.None));
+            // Publish to provider-specific Redis stream
+            var streamKey = GetUploadStreamKey(job.StorageProfile?.ProviderType ?? StorageProviderType.GoogleDrive);
+            var db = redis.GetDatabase();
 
-            Logger.LogInformation("{LogPrefix} Upload job enqueued | JobId: {JobId} | HangfireUploadJobId: {UploadJobId}",
-                LogPrefix, job.Id, uploadJobId);
+            try
+            {
+                await db.StreamAddAsync(streamKey, [
+                    new NameValueEntry("jobId", job.Id.ToString()),
+                    new NameValueEntry("downloadPath", job.DownloadPath ?? string.Empty),
+                    new NameValueEntry("storageProfileId", job.StorageProfileId.ToString()),
+                    new NameValueEntry("userId", job.UserId.ToString()),
+                    new NameValueEntry("createdAt", DateTime.UtcNow.ToString("O"))
+                ]);
+
+                Logger.LogInformation("{LogPrefix} Published to upload stream | JobId: {JobId} | Stream: {Stream}", 
+                    LogPrefix, job.Id, streamKey);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "{LogPrefix} Failed to publish to upload stream | JobId: {JobId} | Stream: {Stream}", 
+                    LogPrefix, job.Id, streamKey);
+                
+                // Mark job as failed if we can't publish
+                job.Status = JobStatus.FAILED;
+                job.ErrorMessage = $"Failed to publish to upload stream: {ex.Message}";
+                await UnitOfWork.Complete();
+            }
+        }
+
+        private static string GetUploadStreamKey(StorageProviderType providerType)
+        {
+            var providerName = providerType.ToString().ToLowerInvariant();
+            return $"uploads:{providerName}:stream";
         }
     }
 }

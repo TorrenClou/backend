@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TorreClou.API", "TorreClou.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TorreClou.Worker", "TorreClou.Worker\TorreClou.Worker.csproj", "{FF036F9F-6849-4BD4-B755-333C5F3A3AFD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TorreClou.GoogleDrive.Worker", "TorreClou.GoogleDrive.Worker\TorreClou.GoogleDrive.Worker.csproj", "{4C722B35-1F4F-806C-B8D1-9473534610C5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{FF036F9F-6849-4BD4-B755-333C5F3A3AFD}.Release|x64.Build.0 = Release|Any CPU
 		{FF036F9F-6849-4BD4-B755-333C5F3A3AFD}.Release|x86.ActiveCfg = Release|Any CPU
 		{FF036F9F-6849-4BD4-B755-333C5F3A3AFD}.Release|x86.Build.0 = Release|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Debug|x64.Build.0 = Debug|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Debug|x86.Build.0 = Debug|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Release|x64.ActiveCfg = Release|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Release|x64.Build.0 = Release|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Release|x86.ActiveCfg = Release|Any CPU
+		{4C722B35-1F4F-806C-B8D1-9473534610C5}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
