@@ -11,6 +11,7 @@ using TorreClou.Core.Options;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Infrastructure.Interceptors;
 using Hangfire;
+using Hangfire.PostgreSql;
 using TorreClou.Infrastructure.Filters;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -32,8 +33,11 @@ builder.Services.AddHttpClient();
 
 // Hangfire configuration
 var hangfireConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddHangfire((provider, config) => config .UseSimpleAssemblyNameTypeSerializer()  .UseRecommendedSerializerSettings()
-  
+builder.Services.AddHangfire((provider, config) => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(hangfireConnectionString))
     .UseFilter(new JobStateSyncFilter(
         provider.GetRequiredService<IServiceScopeFactory>(),
         provider.GetRequiredService<ILogger<JobStateSyncFilter>>()
