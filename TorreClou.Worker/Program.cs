@@ -35,7 +35,7 @@ var hangfireConnectionString = builder.Configuration.GetConnectionString("Defaul
 builder.Services.AddHangfire((provider, config) => config .UseSimpleAssemblyNameTypeSerializer()  .UseRecommendedSerializerSettings()
   
     .UseFilter(new JobStateSyncFilter(
-        provider.GetRequiredService<IUnitOfWork>(),
+        provider.GetRequiredService<IServiceScopeFactory>(),
         provider.GetRequiredService<ILogger<JobStateSyncFilter>>()
     ))
 );
