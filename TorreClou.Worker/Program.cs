@@ -11,7 +11,7 @@ using TorreClou.Core.Options;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Infrastructure.Interceptors;
 using Hangfire;
-using TorreClou.Worker.Filters;
+using TorreClou.Infrastructure.Filters;
 
 var builder = Host.CreateApplicationBuilder(args);
 

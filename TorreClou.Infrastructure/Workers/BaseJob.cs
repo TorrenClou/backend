@@ -4,7 +4,7 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;
 using Microsoft.Extensions.Logging;
 
-namespace TorreClou.Worker.Services
+namespace TorreClou.Infrastructure.Workers
 {
     /// <summary>
     /// Abstract base class for Hangfire jobs that process UserJob entities.

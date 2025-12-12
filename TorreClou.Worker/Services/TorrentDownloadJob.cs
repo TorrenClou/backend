@@ -6,6 +6,7 @@ using MonoTorrent;
 using MonoTorrent.Client;
 using Microsoft.Extensions.Logging;
 using Hangfire;
+using TorreClou.Infrastructure.Workers;
 
 namespace TorreClou.Worker.Services
 {
@@ -13,32 +14,23 @@ namespace TorreClou.Worker.Services
     /// Hangfire job that handles torrent downloading with crash recovery support.
     /// Uses MonoTorrent's FastResume to continue downloads after crashes.
     /// </summary>
-    public class TorrentDownloadJob : BaseJob<TorrentDownloadJob>
+    public class TorrentDownloadJob(
+        IUnitOfWork unitOfWork,
+        IHttpClientFactory httpClientFactory,
+        ILogger<TorrentDownloadJob> logger,
+        IBackgroundJobClient backgroundJobClient) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
     {
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IBackgroundJobClient _backgroundJobClient;
 
         // Save FastResume state every 30 seconds
         private static readonly TimeSpan FastResumeSaveInterval = TimeSpan.FromSeconds(30);
 
         // Update database progress every 5 seconds
-        private static readonly TimeSpan DbUpdateInterval = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan DbUpdateInterval = TimeSpan.FromSeconds(60);
 
         // Engine reference for cleanup in error/cancellation handlers
         private ClientEngine? _engine;
 
-        protected override string LogPrefix => "[DOWNLOAD]";
-
-        public TorrentDownloadJob(
-            IUnitOfWork unitOfWork,
-            IHttpClientFactory httpClientFactory,
-            ILogger<TorrentDownloadJob> logger,
-            IBackgroundJobClient backgroundJobClient)
-            : base(unitOfWork, logger)
-        {
-            _httpClientFactory = httpClientFactory;
-            _backgroundJobClient = backgroundJobClient;
-        }
+        protected override string LogPrefix => "[TORRENT:DOWNLOAD]";
 
         protected override void ConfigureSpecification(BaseSpecification<UserJob> spec)
         {
@@ -46,7 +38,7 @@ namespace TorreClou.Worker.Services
             spec.AddInclude(j => j.StorageProfile);
         }
 
-        [DisableConcurrentExecution(timeoutInSeconds: 3600)] // 1 hour max for large torrents
+        [DisableConcurrentExecution(timeoutInSeconds: 24*3600)] //24 hour max for large torrents
         [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 })]
         [Queue("torrents")]
         public new async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
@@ -165,7 +157,7 @@ namespace TorreClou.Worker.Services
                 Logger.LogInformation("{LogPrefix} Downloading torrent file | JobId: {JobId} | Url: {Url}",
                     LogPrefix, job.Id, job.RequestFile.DirectUrl);
 
-                var httpClient = _httpClientFactory.CreateClient();
+                var httpClient = httpClientFactory.CreateClient();
                 var torrentBytes = await httpClient.GetByteArrayAsync(job.RequestFile.DirectUrl, cancellationToken);
 
                 using var stream = new MemoryStream(torrentBytes);
@@ -201,7 +193,7 @@ namespace TorreClou.Worker.Services
             var lastDbUpdate = DateTime.MinValue;
             var lastLoggedBytes = 0L;
             var lastLogTime = DateTime.UtcNow;
-            const long LogThresholdBytes = 1024 * 1024; // Log every 1 MB
+            const long LogThresholdBytes = 1024 * 1024 *2; // Log every 2 MB
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -319,7 +311,7 @@ namespace TorreClou.Worker.Services
             Logger.LogInformation("{LogPrefix} Chaining to upload job | JobId: {JobId}", LogPrefix, job.Id);
 
             // Chain to upload job
-            var uploadJobId = _backgroundJobClient.Enqueue<TorrentUploadJob>(
+            var uploadJobId = backgroundJobClient.Enqueue<TorrentUploadJob>(
                 service => service.ExecuteAsync(job.Id, CancellationToken.None));
 
             Logger.LogInformation("{LogPrefix} Upload job enqueued | JobId: {JobId} | HangfireUploadJobId: {UploadJobId}",
