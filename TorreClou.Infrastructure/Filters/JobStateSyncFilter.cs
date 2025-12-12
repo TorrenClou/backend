@@ -9,7 +9,7 @@ using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Infrastructure.Filters
 {
-    public class JobStateSyncFilter(IUnitOfWork unitOfWork, ILogger<JobStateSyncFilter> logger) : IElectStateFilter
+    public class JobStateSyncFilter(IServiceScopeFactory scopeFactory, ILogger<JobStateSyncFilter> logger) : IElectStateFilter
     {
         public void OnStateElection(ElectStateContext context)
         {
@@ -33,6 +33,8 @@ namespace TorreClou.Infrastructure.Filters
         {
             try
             {
+                using var scope = scopeFactory.CreateScope();
+                var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 var job = await unitOfWork.Repository<UserJob>().GetByIdAsync(jobId);
 
                 if (job != null && job.Status != JobStatus.FAILED)
