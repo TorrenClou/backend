@@ -97,11 +97,6 @@ namespace TorreClou.Worker.Services
                 _engine = CreateEngine(downloadPath);
                 manager = await _engine.AddAsync(torrent, downloadPath);
                 
-                // Configure per-torrent settings for maximum performance
-                manager.Settings.MaximumConnections = 100;      // Max connections per torrent (default is often 50)
-                manager.Settings.MaximumDownloadSpeed = 0;      // 0 = unlimited
-                manager.Settings.MaximumUploadSpeed = 0;       // 0 = unlimited (uploading helps download speed)
-                manager.Settings.UploadSlots = 8;              // Number of upload slots (default is often 4)
 
                 Logger.LogInformation(
                     "{LogPrefix} Torrent loaded | JobId: {JobId} | Name: {Name} | Size: {SizeMB:F2} MB | Path: {Path} | MaxConnections: {MaxConn}",
@@ -204,11 +199,8 @@ namespace TorreClou.Worker.Services
                 
                 // Performance settings - CRITICAL for download speed
                 MaximumConnections = 200,        // Global max connections (default is often 50-100)
-                MaximumDownloadSpeed = 0,         // 0 = unlimited download speed
-                MaximumUploadSpeed = 0,          // 0 = unlimited upload speed (uploading helps download speed)
                 
                 // Port settings - use random port for flexibility
-                ListenPort = 0,                  // 0 = random port, or set specific port like 6881
                 
                 // Allow port forwarding for better connectivity
                 AllowPortForwarding = true
