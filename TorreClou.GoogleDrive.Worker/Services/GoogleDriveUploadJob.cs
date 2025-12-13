@@ -26,7 +26,6 @@ namespace TorreClou.GoogleDrive.Worker.Services
             spec.AddInclude(j => j.User);
         }
 
-        [DisableConcurrentExecution(timeoutInSeconds: 3600)] // 1 hour max for large uploads
         [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 })]
         [Queue("googledrive")]
         public new async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
@@ -46,7 +45,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             // 2. Validate download path exists
             if (string.IsNullOrEmpty(job.DownloadPath) || !Directory.Exists(job.DownloadPath))
             {
-                await MarkJobFailedAsync(job, "Download path not found. Files may have been deleted.");
+                await MarkJobFailedAsync(job, $"Download path {job.DownloadPath} not found. Files may have been deleted.");
                 return;
             }
 
@@ -100,8 +99,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             // 7. Create root folder in Google Drive
             await UpdateHeartbeatAsync(job, "Creating folder in Google Drive...");
-            var folderName = $"Torrent_{job.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
-            var folderResult = await googleDriveService.CreateFolderAsync(folderName, null, accessToken, cancellationToken);
+            var parentFolder = $"Torrent_{job.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
+            var folderResult = await googleDriveService.CreateFolderAsync(parentFolder, null, accessToken, cancellationToken);
             if (folderResult.IsFailure)
             {
                 await MarkJobFailedAsync(job, $"Failed to create folder: {folderResult.Error.Message}");
@@ -133,13 +132,12 @@ namespace TorreClou.GoogleDrive.Worker.Services
             var directory = new DirectoryInfo(downloadPath);
 
             // Get all files excluding MonoTorrent metadata files and .dht files
-            return directory.GetFiles("*", SearchOption.AllDirectories)
+            return [.. directory.GetFiles("*", SearchOption.AllDirectories)
                 .Where(f => !f.Name.EndsWith(".fresume", StringComparison.OrdinalIgnoreCase) &&
                            !f.Name.EndsWith(".dht", StringComparison.OrdinalIgnoreCase) &&
                            !f.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) &&
                            !f.Name.Equals("dht_nodes.cache", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
+                           !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase))];
         }
 
         /// <summary>
@@ -273,20 +271,20 @@ namespace TorreClou.GoogleDrive.Worker.Services
                         {
                             // Mark only the bytes that were actually uploaded
                             progressContext.MarkBytesCompleted(file.Name, statusResult.Value);
-                            Logger.LogInformation("{LogPrefix} Marked partial upload | JobId: {JobId} | File: {File} | BytesUploaded: {BytesMB:F2} MB / {TotalMB:F2} MB",
+                            Logger.LogWarning("{LogPrefix} Marked partial upload | JobId: {JobId} | File: {File} | BytesUploaded: {BytesMB:F2} MB / {TotalMB:F2} MB",
                                 LogPrefix, job.Id, file.Name, statusResult.Value / (1024.0 * 1024.0), file.Length / (1024.0 * 1024.0));
                         }
                         else
                         {
                             // No bytes uploaded or couldn't query status - mark as 0 bytes
-                            Logger.LogDebug("{LogPrefix} No bytes uploaded before failure | JobId: {JobId} | File: {File}",
+                            Logger.LogCritical("{LogPrefix} No bytes uploaded before failure | JobId: {JobId} | File: {File}",
                                 LogPrefix, job.Id, file.Name);
                         }
                     }
                     else
                     {
                         // No resume URI means upload never started or failed immediately
-                        Logger.LogDebug("{LogPrefix} No resume URI found for failed file | JobId: {JobId} | File: {File}",
+                        Logger.LogCritical("{LogPrefix} No resume URI found for failed file | JobId: {JobId} | File: {File}",
                             LogPrefix, job.Id, file.Name);
                     }
                 }
