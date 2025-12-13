@@ -154,8 +154,6 @@ namespace TorreClou.Infrastructure.Services
         {
             try
             {
-              
-
                 if (!File.Exists(filePath))
                 {
                     return Result<string>.Failure("FILE_NOT_FOUND", $"File not found: {filePath}");
@@ -163,7 +161,8 @@ namespace TorreClou.Infrastructure.Services
 
                 var httpClient = _httpClientFactory.CreateClient();
                 httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-                httpClient.Timeout = TimeSpan.FromHours(2); // Large files may take time
+                httpClient.Timeout = TimeSpan.FromHours(2);
+
                 // Step 1: Create file metadata
                 var metadata = new
                 {
@@ -174,33 +173,32 @@ namespace TorreClou.Infrastructure.Services
                 var metadataJson = JsonSerializer.Serialize(metadata);
                 var metadataContent = new StringContent(metadataJson, Encoding.UTF8, "application/json");
 
-               
+                // Step 2: Create the Multipart Container with "related" subtype
+                // CRITICAL FIX: Use MultipartContent("related") instead of MultipartFormDataContent
+                using var multipartContent = new MultipartContent("related")
+                {
+                    // Part A: Metadata (Must be first)
+                    metadataContent
+                };
 
-                // Step 2: Upload file using multipart upload
+                // Part B: File Content (Must be second)
                 using var fileStream = File.OpenRead(filePath);
-                
-               
-
-                using var multipartContent = new MultipartFormDataContent();
-                multipartContent.Add(metadataContent, "metadata");
                 var streamContent = new StreamContent(fileStream);
-                multipartContent.Add(streamContent, "file", fileName);
 
-            
+                // Optional: Attempt to guess content type or default to octet-stream
+                // streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("video/mp4"); 
 
-             
+                multipartContent.Add(streamContent);
 
+                // Execute Request
                 var response = await httpClient.PostAsync(
                     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name",
                     multipartContent,
                     cancellationToken);
 
-        
-
                 if (!response.IsSuccessStatusCode)
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                
                     _logger.LogError("File upload failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
                     return Result<string>.Failure("UPLOAD_FAILED", $"Failed to upload file: {errorContent}");
                 }
