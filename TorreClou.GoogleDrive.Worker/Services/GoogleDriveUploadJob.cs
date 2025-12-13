@@ -12,20 +12,12 @@ namespace TorreClou.GoogleDrive.Worker.Services
     /// <summary>
     /// Hangfire job that handles uploading downloaded torrent files to Google Drive.
     /// </summary>
-    public class GoogleDriveUploadJob : BaseJob<GoogleDriveUploadJob>
+    public class GoogleDriveUploadJob(
+        IUnitOfWork unitOfWork,
+        ILogger<GoogleDriveUploadJob> logger,
+        IGoogleDriveService googleDriveService) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger)
     {
-        private readonly IGoogleDriveService _googleDriveService;
-
         protected override string LogPrefix => "[GOOGLE_DRIVE:UPLOAD]";
-
-        public GoogleDriveUploadJob(
-            IUnitOfWork unitOfWork,
-            ILogger<GoogleDriveUploadJob> logger,
-            IGoogleDriveService googleDriveService)
-            : base(unitOfWork, logger)
-        {
-            _googleDriveService = googleDriveService;
-        }
 
         protected override void ConfigureSpecification(BaseSpecification<UserJob> spec)
         {
@@ -72,7 +64,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             // 4. Get access token
             await UpdateHeartbeatAsync(job, "Getting access token...");
-            var tokenResult = await _googleDriveService.GetAccessTokenAsync(job.StorageProfile.CredentialsJson, cancellationToken);
+            var tokenResult = await googleDriveService.GetAccessTokenAsync(job.StorageProfile.CredentialsJson, cancellationToken);
             if (tokenResult.IsFailure)
             {
                 await MarkJobFailedAsync(job, $"Failed to get access token: {tokenResult.Error.Message}");
@@ -84,7 +76,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             // 5. Create folder in Google Drive
             await UpdateHeartbeatAsync(job, "Creating folder in Google Drive...");
             var folderName = $"Torrent_{job.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
-            var folderResult = await _googleDriveService.CreateFolderAsync(folderName, null, accessToken, cancellationToken);
+            var folderResult = await googleDriveService.CreateFolderAsync(folderName, null, accessToken, cancellationToken);
             if (folderResult.IsFailure)
             {
                 await MarkJobFailedAsync(job, $"Failed to create folder: {folderResult.Error.Message}");
@@ -157,7 +149,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     LogPrefix, job.Id, file.Name, progress);
 
                 // Upload file to Google Drive
-                var uploadResult = await _googleDriveService.UploadFileAsync(
+                var uploadResult = await googleDriveService.UploadFileAsync(
                     file.FullName,
                     file.Name,
                     folderId,
