@@ -13,24 +13,17 @@ namespace TorreClou.GoogleDrive.Worker
     /// <summary>
     /// Redis stream consumer that listens for Google Drive upload jobs and enqueues them to Hangfire.
     /// </summary>
-    public class GoogleDriveWorker : BaseStreamWorker
+    public class GoogleDriveWorker(
+        ILogger<GoogleDriveWorker> logger,
+        IConnectionMultiplexer redis,
+        IServiceScopeFactory serviceScopeFactory) : BaseStreamWorker(logger, redis)
     {
-        private readonly IServiceScopeFactory _serviceScopeFactory;
-
         protected override string StreamKey => "uploads:googledrive:stream";
         protected override string ConsumerGroupName => "googledrive-workers";
 
-        public GoogleDriveWorker(
-            ILogger<GoogleDriveWorker> logger,
-            IConnectionMultiplexer redis,
-            IServiceScopeFactory serviceScopeFactory) : base(logger, redis)
-        {
-            _serviceScopeFactory = serviceScopeFactory;
-        }
-
         protected override async Task<bool> ProcessJobAsync(StreamEntry entry, CancellationToken cancellationToken)
         {
-            using var scope = _serviceScopeFactory.CreateScope();
+            using var scope = serviceScopeFactory.CreateScope();
             var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
@@ -96,7 +89,7 @@ namespace TorreClou.GoogleDrive.Worker
         {
             try
             {
-                using var errorScope = _serviceScopeFactory.CreateScope();
+                using var errorScope = serviceScopeFactory.CreateScope();
                 var errorUnitOfWork = errorScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 
                 var jobIdStr = entry["jobId"].ToString();

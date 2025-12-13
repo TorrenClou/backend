@@ -164,7 +164,6 @@ namespace TorreClou.Infrastructure.Services
                 var httpClient = _httpClientFactory.CreateClient();
                 httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
                 httpClient.Timeout = TimeSpan.FromHours(2); // Large files may take time
-                httpClient.DefaultRequestHeaders.Add("Content-Disposition", "form-data; name=\"metadata\"");
                 // Step 1: Create file metadata
                 var metadata = new
                 {
