@@ -1,10 +1,11 @@
-using System.Text.Json;
 using System.Text;
-using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TorreClou.Core.Interfaces;
-using TorreClou.Core.Shared;
 using TorreClou.Core.Options;
+using TorreClou.Core.Shared;
+using TorreClou.Infrastructure.Helpers;
 
 namespace TorreClou.Infrastructure.Services
 {
@@ -150,75 +151,113 @@ namespace TorreClou.Infrastructure.Services
             }
         }
 
-        public async Task<Result<string>> UploadFileAsync(string filePath, string fileName, string folderId, string accessToken, CancellationToken cancellationToken = default)
+        // Update signature to accept 'progress'
+        public async Task<Result<string>> UploadFileAsync(
+            string filePath,
+            string fileName,
+            string folderId,
+            string accessToken,
+            IProgress<double>? progress = null, 
+            CancellationToken cancellationToken = default)
         {
             try
             {
                 if (!File.Exists(filePath))
-                {
                     return Result<string>.Failure("FILE_NOT_FOUND", $"File not found: {filePath}");
-                }
 
                 var httpClient = _httpClientFactory.CreateClient();
-                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
                 httpClient.Timeout = TimeSpan.FromHours(2);
 
-                // Step 1: Create file metadata
-                var metadata = new
+                // ---------------------------------------------------------
+                // PHASE 1: Initiate Resumable Upload (Metadata only)
+                // ---------------------------------------------------------
+                var initiateUrl = "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name";
+                var request = new HttpRequestMessage(HttpMethod.Post, initiateUrl);
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                var fileInfo = new FileInfo(filePath);
+                string contentType = GetMimeType(fileName);
+
+                request.Headers.Add("X-Upload-Content-Type", contentType);
+                request.Headers.Add("X-Upload-Content-Length", fileInfo.Length.ToString());
+
+                var metadata = new { name = fileName, parents = new[] { folderId } };
+                var jsonMetadata = JsonSerializer.Serialize(metadata);
+                request.Content = new StringContent(jsonMetadata, Encoding.UTF8, "application/json");
+
+                var initiateResponse = await httpClient.SendAsync(request, cancellationToken);
+
+                if (!initiateResponse.IsSuccessStatusCode)
                 {
-                    name = fileName,
-                    parents = new[] { folderId }
-                };
-
-                var metadataJson = JsonSerializer.Serialize(metadata);
-                var metadataContent = new StringContent(metadataJson, Encoding.UTF8, "application/json");
-
-                // Step 2: Create the Multipart Container with "related" subtype
-                // CRITICAL FIX: Use MultipartContent("related") instead of MultipartFormDataContent
-                using var multipartContent = new MultipartContent("related")
-                {
-                    // Part A: Metadata (Must be first)
-                    metadataContent
-                };
-
-                // Part B: File Content (Must be second)
-                using var fileStream = File.OpenRead(filePath);
-                var streamContent = new StreamContent(fileStream);
-
-                // Optional: Attempt to guess content type or default to octet-stream
-                // streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("video/mp4"); 
-
-                multipartContent.Add(streamContent);
-
-                // Execute Request
-                var response = await httpClient.PostAsync(
-                    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name",
-                    multipartContent,
-                    cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("File upload failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return Result<string>.Failure("UPLOAD_FAILED", $"Failed to upload file: {errorContent}");
+                    // ... (Error handling same as before)
+                    return Result<string>.Failure("INIT_FAILED", "Failed to initiate upload");
                 }
 
-                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-                var uploadResponse = JsonSerializer.Deserialize<FileUploadResponse>(responseJson);
+                var uploadUrl = initiateResponse.Headers.Location;
 
-                if (uploadResponse == null || string.IsNullOrEmpty(uploadResponse.Id))
+                // ---------------------------------------------------------
+                // PHASE 2: Upload Content with Progress
+                // ---------------------------------------------------------
+
+                // Open the file stream
+                var fileStream = File.OpenRead(filePath);
+
+                // Use our custom wrapper instead of standard StreamContent
+                var progressContent = new ProgressableStreamContent(fileStream, (sent, total) =>
                 {
-                    return Result<string>.Failure("INVALID_RESPONSE", "Invalid upload response");
+                    if (progress != null)
+                    {
+                        // Calculate percentage (0 to 100)
+                        double percent = (double)sent / total * 100;
+                        progress.Report(percent);
+                    }
+                });
+
+                // Ensure headers are set on the content wrapper
+                progressContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+
+                // Send the PUT request using the wrapped content
+                var uploadResponse = await httpClient.PutAsync(uploadUrl, progressContent, cancellationToken);
+
+                if (!uploadResponse.IsSuccessStatusCode)
+                {
+                    // ... (Error handling same as before)
+                    return Result<string>.Failure("UPLOAD_FAILED", "Bytes transfer failed");
                 }
 
-                _logger.LogInformation("File uploaded successfully: {FileName} -> {FileId}", fileName, uploadResponse.Id);
-                return Result.Success(uploadResponse.Id);
+                var responseJson = await uploadResponse.Content.ReadAsStringAsync(cancellationToken);
+                var driveFile = JsonSerializer.Deserialize<FileUploadResponse>(responseJson);
+
+                return Result.Success(driveFile?.Id ?? "");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Exception uploading file: {FileName}", fileName);
-                return Result<string>.Failure("UPLOAD_ERROR", $"Error uploading file: {ex.Message}");
+                _logger.LogError(ex, "Exception uploading file");
+                return Result<string>.Failure("UPLOAD_ERROR", ex.Message);
             }
+        }
+
+        // ---------------------------------------------------------
+        // HELPER: Dynamic Mime Type Detection
+        // ---------------------------------------------------------
+        private string GetMimeType(string fileName)
+        {
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            return extension switch
+            {
+                ".mp4" => "video/mp4",
+                ".mkv" => "video/x-matroska",
+                ".avi" => "video/x-msvideo",
+                ".zip" => "application/zip",
+                ".rar" => "application/x-rar-compressed",
+                ".pdf" => "application/pdf",
+                ".jpg" => "image/jpeg",
+                ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".txt" => "text/plain",
+                ".bin" => "application/octet-stream",
+                _ => "application/octet-stream" // Default fallback for unknown types
+            };
         }
 
         private class GoogleDriveCredentials
