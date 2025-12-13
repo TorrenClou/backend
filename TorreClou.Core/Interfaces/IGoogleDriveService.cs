@@ -4,7 +4,7 @@ namespace TorreClou.Core.Interfaces
 {
     public interface IGoogleDriveService
     {
-        Task<Result<string>> UploadFileAsync(string filePath, string fileName, string folderId, string accessToken, CancellationToken cancellationToken = default);
+        Task<Result<string>> UploadFileAsync(string filePath, string fileName, string folderId, string accessToken, IProgress<double>? progress = null, CancellationToken cancellationToken = default);
         Task<Result<string>> CreateFolderAsync(string folderName, string? parentFolderId, string accessToken, CancellationToken cancellationToken = default);
         Task<Result<string>> RefreshAccessTokenAsync(string refreshToken, CancellationToken cancellationToken = default);
         Task<Result<string>> GetAccessTokenAsync(string credentialsJson, CancellationToken cancellationToken = default);

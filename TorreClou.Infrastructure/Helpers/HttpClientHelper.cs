@@ -6,36 +6,30 @@ namespace TorreClou.Infrastructure.Helpers;
 
 public record ApiResponse<T>(bool Success, T? Data, string? Error, int StatusCode);
 
-public class HttpClientHelper
+public class HttpClientHelper(HttpClient httpClient)
 {
-    private readonly HttpClient _httpClient;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         PropertyNameCaseInsensitive = true
     };
 
-    public HttpClientHelper(HttpClient httpClient)
-    {
-        _httpClient = httpClient;
-    }
-
     public void SetHeader(string key, string value)
     {
-        _httpClient.DefaultRequestHeaders.Remove(key);
-        _httpClient.DefaultRequestHeaders.Add(key, value);
+        httpClient.DefaultRequestHeaders.Remove(key);
+        httpClient.DefaultRequestHeaders.Add(key, value);
     }
 
     public void SetBaseAddress(string baseUrl)
     {
-        _httpClient.BaseAddress = new Uri(baseUrl);
+        httpClient.BaseAddress = new Uri(baseUrl);
     }
 
     public async Task<ApiResponse<T>> GetAsync<T>(string url)
     {
         try
         {
-            var response = await _httpClient.GetAsync(url);
+            var response = await httpClient.GetAsync(url);
             return await ParseResponse<T>(response);
         }
         catch (Exception ex)
@@ -55,7 +49,7 @@ public class HttpClientHelper
                 content = new StringContent(json, Encoding.UTF8, "application/json");
             }
 
-            var response = await _httpClient.PostAsync(url, content);
+            var response = await httpClient.PostAsync(url, content);
             return await ParseResponse<T>(response);
         }
         catch (Exception ex)
@@ -75,7 +69,7 @@ public class HttpClientHelper
                 content = new StringContent(json, Encoding.UTF8, "application/json");
             }
 
-            var response = await _httpClient.PutAsync(url, content);
+            var response = await httpClient.PutAsync(url, content);
             return await ParseResponse<T>(response);
         }
         catch (Exception ex)
@@ -88,7 +82,7 @@ public class HttpClientHelper
     {
         try
         {
-            var response = await _httpClient.DeleteAsync(url);
+            var response = await httpClient.DeleteAsync(url);
             return await ParseResponse<T>(response);
         }
         catch (Exception ex)

@@ -147,13 +147,19 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
                 Logger.LogInformation("{LogPrefix} Uploading file | JobId: {JobId} | File: {File} | Progress: {Progress:F1}%",
                     LogPrefix, job.Id, file.Name, progress);
-
+                var progressHandler = new Progress<double>(percent =>
+                {
+                    Logger.LogInformation("{LogPrefix} Upload progress | JobId: {JobId} | File: {File} | Percent: {Percent:F1}%",
+                        LogPrefix, job.Id, file.Name, percent);
+                    UpdateHeartbeatAsync(job, $"Uploading file: {file.Name} - {percent:F1}%").Wait();
+                });
                 // Upload file to Google Drive
                 var uploadResult = await googleDriveService.UploadFileAsync(
                     file.FullName,
                     file.Name,
                     folderId,
                     accessToken,
+                    progressHandler,
                     cancellationToken);
 
                 if (uploadResult.IsFailure)
