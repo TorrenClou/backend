@@ -58,7 +58,6 @@ builder.Services.AddHangfireServer(options =>
 
 // Register Job Services (Hangfire jobs)
 builder.Services.AddScoped<TorrentDownloadJob>();
-builder.Services.AddScoped<TorrentUploadJob>();
 
 // Redis configuration
 var redisConnectionString = builder.Configuration.GetSection("Redis:ConnectionString").Value ?? "localhost:6379";

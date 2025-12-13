@@ -19,7 +19,7 @@ namespace TorreClou.Worker.Services.Strategies
             {
                 // Resume upload phase
                 userJob.CurrentState = "Recovering upload from interrupted state...";
-                return backgroundJobClient.Enqueue<TorrentUploadJob>(
+                return   backgroundJobClient.Enqueue<TorrentDownloadJob>(
                     service => service.ExecuteAsync(job.Id, CancellationToken.None));
             }
             else

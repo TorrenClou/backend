@@ -6,6 +6,7 @@ using TorreClou.GoogleDrive.Worker.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Hangfire;
+using TorreClou.Core.Enums;
 
 namespace TorreClou.GoogleDrive.Worker
 {
@@ -61,7 +62,7 @@ namespace TorreClou.GoogleDrive.Worker
                 }
 
                 // Check if job is already being processed or completed
-                if (job.Status != TorreClou.Core.Enums.JobStatus.UPLOADING)
+                if (job.Status != JobStatus.UPLOADING)
                 {
                     Logger.LogInformation("[GOOGLE_DRIVE_WORKER] Job not in UPLOADING status | JobId: {JobId} | Status: {Status}", 
                         jobId, job.Status);

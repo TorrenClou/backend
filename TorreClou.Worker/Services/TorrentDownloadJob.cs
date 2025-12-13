@@ -31,6 +31,9 @@ namespace TorreClou.Worker.Services
         // Engine reference for cleanup in error/cancellation handlers
         private ClientEngine? _engine;
 
+        // Semaphore to limit concurrent downloads to 4
+        private static readonly SemaphoreSlim _concurrencyLimiter = new SemaphoreSlim(4, 4);
+
         protected override string LogPrefix => "[TORRENT:DOWNLOAD]";
 
         protected override void ConfigureSpecification(BaseSpecification<UserJob> spec)
@@ -39,12 +42,26 @@ namespace TorreClou.Worker.Services
             spec.AddInclude(j => j.StorageProfile);
         }
 
-        [DisableConcurrentExecution(timeoutInSeconds: 24*3600)] //24 hour max for large torrents
+        // Removed DisableConcurrentExecution to allow concurrent downloads (limited by semaphore)
         [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 })]
         [Queue("torrents")]
         public new async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
         {
-            await base.ExecuteAsync(jobId, cancellationToken);
+            // Wait for semaphore slot (max 4 concurrent downloads)
+            await _concurrencyLimiter.WaitAsync(cancellationToken);
+            try
+            {
+                Logger.LogInformation("{LogPrefix} Starting download | JobId: {JobId} | ActiveDownloads: {Active}",
+                    LogPrefix, jobId, 4 - _concurrencyLimiter.CurrentCount);
+                
+                await base.ExecuteAsync(jobId, cancellationToken);
+            }
+            finally
+            {
+                _concurrencyLimiter.Release();
+                Logger.LogInformation("{LogPrefix} Download completed | JobId: {JobId} | ActiveDownloads: {Active}",
+                    LogPrefix, jobId, 4 - _concurrencyLimiter.CurrentCount);
+            }
         }
 
         protected override async Task ExecuteCoreAsync(UserJob job, CancellationToken cancellationToken)
@@ -79,10 +96,16 @@ namespace TorreClou.Worker.Services
                 // 5. Create and configure MonoTorrent engine with FastResume
                 _engine = CreateEngine(downloadPath);
                 manager = await _engine.AddAsync(torrent, downloadPath);
+                
+                // Configure per-torrent settings for maximum performance
+                manager.Settings.MaximumConnections = 100;      // Max connections per torrent (default is often 50)
+                manager.Settings.MaximumDownloadSpeed = 0;      // 0 = unlimited
+                manager.Settings.MaximumUploadSpeed = 0;       // 0 = unlimited (uploading helps download speed)
+                manager.Settings.UploadSlots = 8;              // Number of upload slots (default is often 4)
 
                 Logger.LogInformation(
-                    "{LogPrefix} Torrent loaded | JobId: {JobId} | Name: {Name} | Size: {SizeMB:F2} MB | Path: {Path}",
-                    LogPrefix, job.Id, torrent.Name, torrent.Size / (1024.0 * 1024.0), downloadPath);
+                    "{LogPrefix} Torrent loaded | JobId: {JobId} | Name: {Name} | Size: {SizeMB:F2} MB | Path: {Path} | MaxConnections: {MaxConn}",
+                    LogPrefix, job.Id, torrent.Name, torrent.Size / (1024.0 * 1024.0), downloadPath, manager.Settings.MaximumConnections);
 
                 // 6. Start downloading
                 await manager.StartAsync();
@@ -175,10 +198,20 @@ namespace TorreClou.Worker.Services
         {
             var settings = new EngineSettingsBuilder
             {
-                
                 AutoSaveLoadDhtCache = true,
                 AutoSaveLoadFastResume = true,  // Enable FastResume for crash recovery
-                CacheDirectory = downloadPath    // Store .fresume files alongside downloads
+                CacheDirectory = downloadPath,   // Store .fresume files alongside downloads
+                
+                // Performance settings - CRITICAL for download speed
+                MaximumConnections = 200,        // Global max connections (default is often 50-100)
+                MaximumDownloadSpeed = 0,         // 0 = unlimited download speed
+                MaximumUploadSpeed = 0,          // 0 = unlimited upload speed (uploading helps download speed)
+                
+                // Port settings - use random port for flexibility
+                ListenPort = 0,                  // 0 = random port, or set specific port like 6881
+                
+                // Allow port forwarding for better connectivity
+                AllowPortForwarding = true
             }.ToSettings();
 
             return new ClientEngine(settings);
