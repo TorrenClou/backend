@@ -1,8 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Trace;
-using Scalar.AspNetCore;
 using TorreClou.API.Middleware;
 
 namespace TorreClou.API.Extensions
@@ -18,20 +15,9 @@ namespace TorreClou.API.Extensions
             services.AddExceptionHandler<GlobalExceptionHandler>();
             services.AddProblemDetails();
 
-            services.AddOpenTelemetry()
-                .WithTracing(tracing =>
-                {
-                    tracing.AddAspNetCoreInstrumentation()
-                           .AddHttpClientInstrumentation()
-                           .AddEntityFrameworkCoreInstrumentation()
-                           .AddOtlpExporter();
-                })
-                .WithMetrics(metrics =>
-                {
-                    metrics.AddAspNetCoreInstrumentation()
-                           .AddHttpClientInstrumentation()
-                           .AddOtlpExporter();
-                });
+            // Note: Datadog APM is configured via UseDatadog() extension in Program.cs
+            // Automatic instrumentation for ASP.NET Core, HttpClient, EF Core, Redis, etc.
+            // is handled by the Datadog.Trace.Bundle package
 
             return services;
         }
