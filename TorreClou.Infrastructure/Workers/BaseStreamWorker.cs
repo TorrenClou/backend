@@ -1,4 +1,5 @@
 using StackExchange.Redis;
+using TorreClou.Infrastructure.Tracing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 
@@ -133,6 +134,26 @@ namespace TorreClou.Infrastructure.Workers
         private async Task ProcessMessageAsync(IDatabase db, StreamEntry entry, CancellationToken stoppingToken)
         {
             var messageId = entry.Id;
+            
+            // Extract job metadata from entry if available
+            var jobId = entry["jobId"].ToString();
+            var jobType = entry["jobType"].ToString();
+            
+            // Create a span for the entire message processing
+            using var span = Tracing.Tracing.StartSpan("redis.stream.process_message", $"Process {StreamKey}")
+                .WithTag("stream.key", StreamKey)
+                .WithTag("stream.consumer_group", ConsumerGroupName)
+                .WithTag("stream.consumer", ConsumerName)
+                .WithTag("stream.message_id", messageId.ToString());
+            
+            if (!string.IsNullOrEmpty(jobId))
+            {
+                span.WithTag("job.id", jobId);
+            }
+            if (!string.IsNullOrEmpty(jobType))
+            {
+                span.WithTag("job.type", jobType);
+            }
 
             try
             {
@@ -142,17 +163,25 @@ namespace TorreClou.Infrastructure.Workers
                 );
 
                 // Acknowledge immediately (as per plan: ACK before processing)
-                await db.StreamAcknowledgeAsync(StreamKey, ConsumerGroupName, messageId);
+                using (Tracing.Tracing.StartChildSpan("redis.stream.acknowledge"))
+                {
+                    await db.StreamAcknowledgeAsync(StreamKey, ConsumerGroupName, messageId);
+                }
                 Logger.LogInformation(
                     "[ACKNOWLEDGED] Message acknowledged | MessageId: {MessageId}",
                     messageId
                 );
 
                 // Process the job (implemented by derived classes)
-                var success = await ProcessJobAsync(entry, stoppingToken);
+                bool success;
+                using (Tracing.Tracing.StartChildSpan("stream.process_job"))
+                {
+                    success = await ProcessJobAsync(entry, stoppingToken);
+                }
 
                 if (success)
                 {
+                    span.WithTag("stream.processing_status", "success");
                     Logger.LogInformation(
                         "[COMPLETED] Job processed successfully | MessageId: {MessageId}",
                         messageId
@@ -160,6 +189,7 @@ namespace TorreClou.Infrastructure.Workers
                 }
                 else
                 {
+                    span.WithTag("stream.processing_status", "failed");
                     Logger.LogWarning(
                         "[FAILED] Job processing returned false | MessageId: {MessageId}",
                         messageId
@@ -168,6 +198,8 @@ namespace TorreClou.Infrastructure.Workers
             }
             catch (Exception ex)
             {
+                span.WithTag("stream.processing_status", "error").WithException(ex);
+                
                 Logger.LogError(
                     ex,
                     "[ERROR] Error processing job | MessageId: {MessageId} | Error: {Error}",
