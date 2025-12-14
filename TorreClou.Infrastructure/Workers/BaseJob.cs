@@ -2,6 +2,7 @@ using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;
+using TorreClou.Infrastructure.Tracing;
 using Microsoft.Extensions.Logging;
 
 namespace TorreClou.Infrastructure.Workers
@@ -30,9 +31,17 @@ namespace TorreClou.Infrastructure.Workers
         /// <summary>
         /// Template method that orchestrates the job execution lifecycle.
         /// Subclasses should override ExecuteCoreAsync for specific job logic.
+        /// Wrapped in Datadog span for distributed tracing.
         /// </summary>
         public async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
         {
+            var operationName = $"job.{LogPrefix.Trim('[', ']').ToLowerInvariant()}.execute";
+            
+            using var span = Tracing.Tracing.StartSpan(operationName, $"Job {jobId}")
+                .WithTag("job.id", jobId)
+                .WithTag("job.type", GetType().Name)
+                .WithTag("job.prefix", LogPrefix);
+
             Logger.LogInformation("{LogPrefix} Starting job | JobId: {JobId}", LogPrefix, jobId);
 
             UserJob? job = null;
@@ -40,25 +49,48 @@ namespace TorreClou.Infrastructure.Workers
             try
             {
                 // 1. Load job from database
-                job = await LoadJobAsync(jobId);
-                if (job == null) return;
+                using (Tracing.Tracing.StartChildSpan("job.load"))
+                {
+                    job = await LoadJobAsync(jobId);
+                }
+                
+                if (job == null)
+                {
+                    span.WithTag("job.status", "not_found").AsError();
+                    return;
+                }
+
+                // Add job details to span
+                span.WithTag("job.user_id", job.UserId)
+                    .WithTag("job.status.initial", job.Status.ToString());
 
                 // 2. Check if already completed or cancelled
                 if (IsJobTerminated(job))
                 {
                     Logger.LogInformation("{LogPrefix} Job already finished | JobId: {JobId} | Status: {Status}", 
                         LogPrefix, jobId, job.Status);
+                    span.WithTag("job.status", "already_terminated")
+                        .WithTag("job.status.final", job.Status.ToString());
                     return;
                 }
 
                 // 3. Execute the core job logic
-                await ExecuteCoreAsync(job, cancellationToken);
+                using (Tracing.Tracing.StartChildSpan("job.execute_core"))
+                {
+                    await ExecuteCoreAsync(job, cancellationToken);
+                }
+                
+                span.WithTag("job.status", "success")
+                    .WithTag("job.status.final", job.Status.ToString());
             }
             catch (OperationCanceledException)
             {
                 Logger.LogWarning("{LogPrefix} Job cancelled | JobId: {JobId}", LogPrefix, jobId);
+                span.WithTag("job.status", "cancelled").AsError();
+                
                 if (job != null)
                 {
+                    span.WithTag("job.status.final", job.Status.ToString());
                     await OnJobCancelledAsync(job);
                 }
                 throw; // Let Hangfire handle the cancellation
@@ -66,9 +98,12 @@ namespace TorreClou.Infrastructure.Workers
             catch (Exception ex)
             {
                 Logger.LogError(ex, "{LogPrefix} Fatal error | JobId: {JobId}", LogPrefix, jobId);
+                
+                span.WithTag("job.status", "error").WithException(ex);
 
                 if (job != null)
                 {
+                    span.WithTag("job.status.final", JobStatus.FAILED.ToString());
                     await OnJobErrorAsync(job, ex);
                     await MarkJobFailedAsync(job, ex.Message);
                 }

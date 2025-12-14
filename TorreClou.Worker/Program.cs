@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using TorreClou.Infrastructure.Data;
 using TorreClou.Infrastructure.Repositories;
 using TorreClou.Infrastructure.Services;
+using TorreClou.Infrastructure.Extensions;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Options;
 using TorreClou.Core.Entities.Jobs;
@@ -13,8 +14,14 @@ using TorreClou.Infrastructure.Interceptors;
 using Hangfire;
 using Hangfire.PostgreSql;
 using TorreClou.Infrastructure.Filters;
+using Serilog;
+
+const string ServiceName = "torreclou-worker";
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Configure Datadog APM and logging
+builder.UseDatadog(ServiceName);
 
 // Database configuration
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

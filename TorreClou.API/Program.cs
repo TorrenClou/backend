@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Scalar.AspNetCore;
 using Serilog;
 using TorreClou.API.Extensions;
@@ -7,6 +7,8 @@ using TorreClou.Application.Extensions;
 using TorreClou.Infrastructure.Extensions;
 using Hangfire;
 using Hangfire.PostgreSql;
+
+const string ServiceName = "torreclou-api";
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -17,6 +19,9 @@ try
     Log.Information("Starting web application");
 
     var builder = WebApplication.CreateBuilder(args);
+
+    // Configure Datadog APM and logging
+    builder.Host.UseDatadog(ServiceName, builder.Configuration);
 
     // Add services to the container.
     builder.Services.AddInfrastructureServices(builder.Configuration);
