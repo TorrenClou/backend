@@ -9,18 +9,10 @@ using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Infrastructure.Services
 {
-    public class TokenService : ITokenService
+    public class TokenService(IConfiguration config) : ITokenService
     {
-        private readonly IConfiguration _config;
-
-        public TokenService(IConfiguration config)
-        {
-            _config = config;
-        }
-
         public string CreateToken(User user)
         {
-            // 1. Claims: البيانات اللي جوه التوكن
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.Email, user.Email),
@@ -30,7 +22,7 @@ namespace TorreClou.Infrastructure.Services
             };
 
             // 2. Key & Signature
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256Signature);
 
             // 3. Create Token
@@ -39,8 +31,8 @@ namespace TorreClou.Infrastructure.Services
                 Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.Now.AddDays(7), // التوكن صالح لمدة أسبوع
                 SigningCredentials = creds,
-                Issuer = _config["Jwt:Issuer"],
-                Audience = _config["Jwt:Audience"]
+                Issuer = config["Jwt:Issuer"],
+                Audience = config["Jwt:Audience"]
             };
 
             var tokenHandler = new JwtSecurityTokenHandler();
@@ -51,20 +43,15 @@ namespace TorreClou.Infrastructure.Services
 
         public async Task<GoogleJsonWebSignature.Payload> VerifyGoogleTokenAsync(string idToken)
         {
-            try
-            {
+           
                 var settings = new GoogleJsonWebSignature.ValidationSettings()
                 {
-                    Audience = new List<string>() { _config["Google:ClientId"] } // عشان نتأكد إن التوكن ده لـ App بتاعنا
+                    Audience = [config["Google:ClientId"]] // عشان نتأكد إن التوكن ده لـ App بتاعنا
                 };
 
                 var payload = await GoogleJsonWebSignature.ValidateAsync(idToken, settings);
                 return payload;
-            }
-            catch
-            {
-                throw new Exception("Invalid Google Token");
-            }
+           
         }
     }
 }

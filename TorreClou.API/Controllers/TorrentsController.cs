@@ -25,12 +25,12 @@ namespace TorreClou.API.Controllers
         }
 
         [HttpPost("quote")]
+        [Authorize]
         public async Task<IActionResult> GetQuote([FromForm] QuoteRequestDto request)
         {
-            var userId = 2;
             using var stream = request.TorrentFile.OpenReadStream();
 
-            var result = await quoteService.GenerateQuoteAsync(request, userId, stream);
+            var result = await quoteService.GenerateQuoteAsync(request, UserId, stream);
 
             return HandleResult(result);
         }

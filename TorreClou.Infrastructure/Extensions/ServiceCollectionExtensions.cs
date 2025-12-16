@@ -44,6 +44,9 @@ namespace TorreClou.Infrastructure.Extensions
             // Upload Progress Context (scoped per Hangfire job)
             services.AddScoped<IUploadProgressContext, UploadProgressContext>();
 
+            // Transfer Speed Metrics (singleton for metrics collection)
+            services.AddSingleton<TransferSpeedMetrics>();
+
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {
                 var interceptor = sp.GetRequiredService<UpdateAuditableEntitiesInterceptor>();

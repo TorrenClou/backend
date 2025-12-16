@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Web;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
@@ -19,24 +20,24 @@ namespace TorreClou.Application.Services
         private readonly GoogleDriveSettings _settings;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<GoogleDriveAuthService> _logger;
-
-        // In-memory state store (in production, use Redis or database)
-        private static readonly Dictionary<string, OAuthState> _stateStore = new();
-        private static readonly object _stateLock = new();
+        private readonly IConnectionMultiplexer _redis;
+        private const string RedisKeyPrefix = "oauth:state:";
 
         public GoogleDriveAuthService(
             IUnitOfWork unitOfWork,
             IOptions<GoogleDriveSettings> settings,
             IHttpClientFactory httpClientFactory,
-            ILogger<GoogleDriveAuthService> logger)
+            ILogger<GoogleDriveAuthService> logger,
+            IConnectionMultiplexer redis)
         {
             _unitOfWork = unitOfWork;
             _settings = settings.Value;
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _redis = redis;
         }
 
-        public Task<Result<string>> GetAuthorizationUrlAsync(int userId)
+        public async Task<Result<string>> GetAuthorizationUrlAsync(int userId)
         {
             try
             {
@@ -45,15 +46,26 @@ namespace TorreClou.Application.Services
                 var state = $"{userId}:{nonce}";
                 var stateHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(state)));
 
-                // Store state with expiration (5 minutes)
-                lock (_stateLock)
+                // Store state in Redis with expiration (5 minutes)
+                var oauthState = new OAuthState
                 {
-                    _stateStore[stateHash] = new OAuthState
-                    {
-                        UserId = userId,
-                        Nonce = nonce,
-                        ExpiresAt = DateTime.UtcNow.AddMinutes(5)
-                    };
+                    UserId = userId,
+                    Nonce = nonce,
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+                };
+
+                var redisKey = $"{RedisKeyPrefix}{stateHash}";
+                var jsonValue = JsonSerializer.Serialize(oauthState);
+                var db = _redis.GetDatabase();
+
+                try
+                {
+                    await db.StringSetAsync(redisKey, jsonValue, TimeSpan.FromMinutes(5));
+                }
+                catch (Exception redisEx)
+                {
+                    _logger.LogError(redisEx, "Failed to store OAuth state in Redis for user {UserId}", userId);
+                    return Result<string>.Failure("REDIS_ERROR", "Failed to store OAuth state");
                 }
 
                 // Build OAuth URL
@@ -70,36 +82,55 @@ namespace TorreClou.Application.Services
                     $"prompt=consent&" +
                     $"state={encodedState}";
 
-                return Task.FromResult(Result.Success(authUrl));
+                return Result.Success(authUrl);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error generating authorization URL for user {UserId}", userId);
-                return Task.FromResult(Result<string>.Failure("AUTH_URL_ERROR", "Failed to generate authorization URL"));
+                return Result<string>.Failure("AUTH_URL_ERROR", "Failed to generate authorization URL");
             }
         }
 
-        public async Task<Result<int>> HandleOAuthCallbackAsync(string code, string state, int userId)
+        public async Task<Result<int>> HandleOAuthCallbackAsync(string code, string state)
         {
             try
             {
-                // Validate state
+                // Retrieve and delete state from Redis (atomic operation ensures single-use)
+                var redisKey = $"{RedisKeyPrefix}{state}";
+                var db = _redis.GetDatabase();
+                
                 OAuthState? storedState;
-                lock (_stateLock)
+                try
                 {
-                    if (!_stateStore.TryGetValue(state, out storedState) || storedState.ExpiresAt < DateTime.UtcNow)
+                    // Atomic get-and-delete operation
+                    var stateJson = await db.StringGetDeleteAsync(redisKey);
+                    
+                    if (!stateJson.HasValue)
                     {
                         return Result<int>.Failure("INVALID_STATE", "Invalid or expired OAuth state");
                     }
 
-                    if (storedState.UserId != userId)
+                    storedState = JsonSerializer.Deserialize<OAuthState>(stateJson!);
+                    
+                    if (storedState == null)
                     {
-                        return Result<int>.Failure("USER_MISMATCH", "User ID mismatch in OAuth state");
+                        return Result<int>.Failure("INVALID_STATE", "Invalid OAuth state format");
                     }
 
-                    // Remove used state
-                    _stateStore.Remove(state);
+                    // Validate expiration
+                    if (storedState.ExpiresAt < DateTime.UtcNow)
+                    {
+                        return Result<int>.Failure("INVALID_STATE", "Expired OAuth state");
+                    }
                 }
+                catch (Exception redisEx)
+                {
+                    _logger.LogError(redisEx, "Failed to retrieve OAuth state from Redis");
+                    return Result<int>.Failure("REDIS_ERROR", "Failed to validate OAuth state");
+                }
+
+                // Extract userId from validated state
+                var userId = storedState.UserId;
 
                 // Exchange authorization code for tokens
                 var tokenResponse = await ExchangeCodeForTokensAsync(code);
@@ -162,7 +193,7 @@ namespace TorreClou.Application.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling OAuth callback for user {UserId}", userId);
+                _logger.LogError(ex, "Error handling OAuth callback");
                 return Result<int>.Failure("OAUTH_CALLBACK_ERROR", "Failed to complete OAuth flow");
             }
         }

@@ -12,15 +12,69 @@ using TorreClou.Core.Options;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.Grafana.Loki;
 
 const string ServiceName = "torreclou-googledrive-worker";
 
-var builder = Host.CreateApplicationBuilder(args);
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-// Configure Datadog APM and logging
-builder.UseDatadog(ServiceName);
+try
+{
+    Log.Information("Starting Google Drive worker application");
 
-// Database configuration
+    var builder = Host.CreateApplicationBuilder(args);
+
+    // Configure Serilog with Loki
+    var lokiUrl = builder.Configuration["Observability:LokiUrl"] ?? 
+                  Environment.GetEnvironmentVariable("LOKI_URL") ?? 
+                  "http://localhost:3100";
+    var lokiUsername = builder.Configuration["Observability:LokiUsername"] ?? 
+                       Environment.GetEnvironmentVariable("LOKI_USERNAME");
+    var lokiApiKey = builder.Configuration["Observability:LokiApiKey"] ?? 
+                     Environment.GetEnvironmentVariable("LOKI_API_KEY");
+    
+    var loggerConfig = new LoggerConfiguration()
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+        .MinimumLevel.Override("System", LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithThreadId()
+        .Enrich.WithProperty("service", ServiceName)
+        .Enrich.WithProperty("environment", builder.Environment.EnvironmentName)
+        .WriteTo.Console(
+            outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}");
+    
+    // Add Loki sink if URL is configured
+    if (!string.IsNullOrEmpty(lokiUrl) && !lokiUrl.Equals("http://localhost:3100", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!string.IsNullOrEmpty(lokiUsername) && !string.IsNullOrEmpty(lokiApiKey))
+        {
+            var credentials = new LokiCredentials
+            {
+                Login = lokiUsername,
+                Password = lokiApiKey
+            };
+            loggerConfig = loggerConfig.WriteTo.GrafanaLoki(lokiUrl, credentials: credentials);
+        }
+        else
+        {
+            loggerConfig = loggerConfig.WriteTo.GrafanaLoki(lokiUrl);
+        }
+    }
+    
+    Log.Logger = loggerConfig.CreateLogger();
+    
+    builder.Services.AddSerilog();
+
+    // Add OpenTelemetry
+    builder.Services.AddTorreClouOpenTelemetry(ServiceName, builder.Configuration, builder.Environment);
+
+    // Database configuration
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
     var interceptor = new UpdateAuditableEntitiesInterceptor();
@@ -77,4 +131,13 @@ builder.Services.AddHostedService<GoogleDriveWorker>();
 
 var host = builder.Build();
 host.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Google Drive worker application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 

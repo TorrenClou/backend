@@ -5,6 +5,7 @@ using TorreClou.Core.Specifications;
 using Microsoft.Extensions.Logging;
 using Hangfire;
 using TorreClou.Infrastructure.Workers;
+using TorreClou.Infrastructure.Services;
 
 namespace TorreClou.GoogleDrive.Worker.Services
 {
@@ -16,7 +17,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
         IUnitOfWork unitOfWork,
         ILogger<GoogleDriveUploadJob> logger,
         IGoogleDriveService googleDriveService,
-        IUploadProgressContext progressContext) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger)
+        IUploadProgressContext progressContext,
+        TransferSpeedMetrics speedMetrics) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger)
     {
         protected override string LogPrefix => "[GOOGLE_DRIVE:UPLOAD]";
 
@@ -82,6 +84,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             }
 
             var totalBytes = filesToUpload.Sum(f => f.Length);
+            var uploadStartTime = DateTime.UtcNow;
             Logger.LogInformation("{LogPrefix} Found {FileCount} files to upload | JobId: {JobId} | TotalSize: {SizeMB:F2} MB",
                 LogPrefix, filesToUpload.Length, job.Id, totalBytes / (1024.0 * 1024.0));
 
@@ -118,7 +121,11 @@ namespace TorreClou.GoogleDrive.Worker.Services
             // 9. Upload files
             await UploadFilesAsync(job, filesToUpload, folderIdMap, accessToken, cancellationToken);
 
-            // 10. Mark as completed
+            // 10. Record final upload metrics
+            var uploadDuration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
+            speedMetrics.RecordUploadComplete(job.Id, job.UserId, "googledrive_upload", totalBytes, uploadDuration);
+
+            // 11. Mark as completed
             job.Status = JobStatus.COMPLETED;
             job.CompletedAt = DateTime.UtcNow;
             job.CurrentState = "Upload completed successfully";
@@ -225,6 +232,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
             var totalFiles = files.Length;
             var uploadedFiles = 0;
             var failedFiles = 0;
+            var lastUploadTime = DateTime.UtcNow;
+            var lastUploadedBytes = 0L;
 
             foreach (var file in files)
             {
@@ -292,6 +301,18 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 {
                     // Mark file as completed in progress context
                     progressContext.MarkFileCompleted(file.Name, file.Length);
+                    
+                    // Record upload speed metrics
+                    var now = DateTime.UtcNow;
+                    var timeDelta = (now - lastUploadTime).TotalSeconds;
+                    if (timeDelta > 0)
+                    {
+                        var bytesDelta = file.Length;
+                        var speed = bytesDelta / timeDelta;
+                        speedMetrics.RecordUploadSpeed(job.Id, job.UserId, "googledrive_upload", speed);
+                        lastUploadTime = now;
+                        lastUploadedBytes += bytesDelta;
+                    }
                     
                     Logger.LogInformation("{LogPrefix} File uploaded successfully | JobId: {JobId} | File: {File} | FileId: {FileId}",
                         LogPrefix, job.Id, file.Name, uploadResult.Value);
