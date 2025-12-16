@@ -10,23 +10,14 @@ namespace TorreClou.API.Controllers
 {
     [Route("api/storage")]
     [Authorize]
-    public class StorageProfilesController : BaseApiController
+    public class StorageProfilesController(
+        IGoogleDriveAuthService googleDriveAuthService,
+        IUnitOfWork unitOfWork) : BaseApiController
     {
-        private readonly IGoogleDriveAuthService _googleDriveAuthService;
-        private readonly IUnitOfWork _unitOfWork;
-
-        public StorageProfilesController(
-            IGoogleDriveAuthService googleDriveAuthService,
-            IUnitOfWork unitOfWork)
-        {
-            _googleDriveAuthService = googleDriveAuthService;
-            _unitOfWork = unitOfWork;
-        }
-
         [HttpGet("google-drive/connect")]
         public async Task<IActionResult> ConnectGoogleDrive()
         {
-            var result = await _googleDriveAuthService.GetAuthorizationUrlAsync(UserId);
+            var result = await googleDriveAuthService.GetAuthorizationUrlAsync(UserId);
             if (result.IsFailure)
             {
                 return HandleResult(result);
@@ -39,6 +30,7 @@ namespace TorreClou.API.Controllers
         }
 
         [HttpGet("google-drive/callback")]
+        [AllowAnonymous]
         public async Task<IActionResult> GoogleDriveCallback([FromQuery] string code, [FromQuery] string state)
         {
             if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
@@ -46,7 +38,7 @@ namespace TorreClou.API.Controllers
                 return BadRequest(new { error = "Missing code or state parameter" });
             }
 
-            var result = await _googleDriveAuthService.HandleOAuthCallbackAsync(code, state, UserId);
+            var result = await googleDriveAuthService.HandleOAuthCallbackAsync(code, state);
             return HandleResult(result);
         }
 
@@ -57,7 +49,7 @@ namespace TorreClou.API.Controllers
                 p => p.UserId == UserId && p.IsActive
             );
 
-            var profiles = await _unitOfWork.Repository<UserStorageProfile>().ListAsync(spec);
+            var profiles = await unitOfWork.Repository<UserStorageProfile>().ListAsync(spec);
 
             var dtos = profiles
                 .OrderBy(p => p.IsDefault ? 0 : 1)
@@ -81,7 +73,7 @@ namespace TorreClou.API.Controllers
             var spec = new BaseSpecification<UserStorageProfile>(
                 p => p.Id == id && p.UserId == UserId && p.IsActive
             );
-            var profile = await _unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(spec);
+            var profile = await unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(spec);
 
             if (profile == null)
             {
@@ -92,7 +84,7 @@ namespace TorreClou.API.Controllers
             var allProfilesSpec = new BaseSpecification<UserStorageProfile>(
                 p => p.UserId == UserId && p.IsActive
             );
-            var allProfiles = await _unitOfWork.Repository<UserStorageProfile>().ListAsync(allProfilesSpec);
+            var allProfiles = await unitOfWork.Repository<UserStorageProfile>().ListAsync(allProfilesSpec);
 
             foreach (var p in allProfiles)
             {
@@ -101,7 +93,7 @@ namespace TorreClou.API.Controllers
 
             // Set this profile as default
             profile.IsDefault = true;
-            await _unitOfWork.Complete();
+            await unitOfWork.Complete();
 
             return HandleResult(Result.Success());
         }

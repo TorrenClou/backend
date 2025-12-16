@@ -7,6 +7,7 @@ using MonoTorrent.Client;
 using Microsoft.Extensions.Logging;
 using Hangfire;
 using TorreClou.Infrastructure.Workers;
+using TorreClou.Infrastructure.Services;
 using StackExchange.Redis;
 
 namespace TorreClou.Worker.Services
@@ -19,7 +20,8 @@ namespace TorreClou.Worker.Services
         IUnitOfWork unitOfWork,
         IHttpClientFactory httpClientFactory,
         ILogger<TorrentDownloadJob> logger,
-        IConnectionMultiplexer redis) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
+        IConnectionMultiplexer redis,
+        TransferSpeedMetrics speedMetrics) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
     {
 
         // Save FastResume state every 30 seconds
@@ -212,6 +214,7 @@ namespace TorreClou.Worker.Services
             TorrentManager manager,
             CancellationToken cancellationToken)
         {
+            var downloadStartTime = DateTime.UtcNow;
             var lastSaveTime = DateTime.UtcNow;
             var lastDbUpdate = DateTime.MinValue;
             var lastLoggedBytes = 0L;
@@ -222,10 +225,18 @@ namespace TorreClou.Worker.Services
             {
                 var now = DateTime.UtcNow;
 
+                // Update progress metrics
+                var actualDownloaded = manager.Monitor.DataBytesReceived;
+
                 // Check for completion
                 if (manager.Progress >= 100.0 || manager.State == TorrentState.Seeding)
                 {
                     Logger.LogInformation("{LogPrefix} Download complete | JobId: {JobId}", LogPrefix, job.Id);
+                    
+                    // Record final download metrics
+                    var duration = (DateTime.UtcNow - downloadStartTime).TotalSeconds;
+                    speedMetrics.RecordDownloadComplete(job.Id, job.UserId, "torrent_download", actualDownloaded, duration);
+                    
                     await SaveEngineStateAsync(engine, "completion");
                     return true;
                 }
@@ -240,9 +251,6 @@ namespace TorreClou.Worker.Services
                     return false;
                 }
 
-                // Update progress metrics
-                var actualDownloaded = manager.Monitor.DataBytesReceived;
-
                 // Log progress every 1 MB
                 if (actualDownloaded - lastLoggedBytes >= LogThresholdBytes)
                 {
@@ -256,6 +264,9 @@ namespace TorreClou.Worker.Services
                         actualDownloaded / (1024.0 * 1024.0),
                         job.TotalBytes / (1024.0 * 1024.0),
                         speed / (1024.0 * 1024.0));
+
+                    // Record speed metrics
+                    speedMetrics.RecordDownloadSpeed(job.Id, job.UserId, "torrent_download", speed);
 
                     lastLoggedBytes = actualDownloaded;
                     lastLogTime = now;
