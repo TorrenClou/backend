@@ -34,7 +34,28 @@ namespace TorreClou.Application.Services
             snapshot.SelectedFiles = request.SelectedFiles ?? new List<int>();
             snapshot.UserRegion = request.Region.ToString();
 
-            // 2) حاول تعيد استخدام Invoice موجودة
+            // 2) Check for PENDING invoice first - prevent duplicates
+            var pendingInvoiceResult = await FindPendingInvoiceByTorrentAndUserAsync(
+                request.InfoHash,
+                request.UserId
+            );
+
+            if (pendingInvoiceResult.IsSuccess)
+            {
+                // Return existing pending invoice regardless of snapshot equivalence
+                var pendingInvoice = pendingInvoiceResult.Value;
+                var pendingSnapshot =
+                    JsonSerializer.Deserialize<PricingSnapshot>(pendingInvoice.PricingSnapshotJson)!;
+
+                return Result.Success(new QuotePricingResult
+                {
+                    Invoice = pendingInvoice,
+                    Snapshot = pendingSnapshot,
+                    IsReused = true
+                });
+            }
+
+            // 3) If no pending invoice, check for other active invoices (for snapshot equivalence)
             var existingInvoiceResult = await FindActiveInvoiceByTorrentAndUserAsync(
                 request.InfoHash,
                 request.UserId
@@ -62,7 +83,7 @@ namespace TorreClou.Application.Services
                 await unitOfWork.Complete();
             }
 
-            // 3) Voucher logic (generic)
+            // 4) Voucher logic (generic)
             Voucher? voucher = null;
             if (!string.IsNullOrEmpty(request.VoucherCode))
             {
@@ -77,7 +98,7 @@ namespace TorreClou.Application.Services
                 voucher = voucherResult.Value;
             }
 
-            // 4) Create new invoice
+            // 5) Create new invoice
             var originalPriceUsd = snapshot.FinalPrice;
 
             var invoiceResult = await CreateInvoiceAsync(
@@ -153,6 +174,19 @@ namespace TorreClou.Application.Services
 
         }
         // ==================== Internal helpers ====================
+
+        private async Task<Result<Invoice>> FindPendingInvoiceByTorrentAndUserAsync(
+            string infoHash,
+            int userId)
+        {
+            var spec = new PendingInvoiceByTorrentAndUserSpec(infoHash, userId);
+            var invoice = await unitOfWork.Repository<Invoice>().GetEntityWithSpec(spec);
+
+            if (invoice == null)
+                return Result<Invoice>.Failure("NO_PENDING_INVOICE", "No pending invoice found for the given torrent and user.");
+
+            return Result.Success(invoice);
+        }
 
         private async Task<Result<Invoice>> FindActiveInvoiceByTorrentAndUserAsync(
             string infoHash,
