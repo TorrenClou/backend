@@ -1,17 +1,19 @@
 ﻿using TorreClou.Core.Entities.Financals;
-using TorreClou.Core.Specifications;
 
-public class ActiveInvoiceByTorrentAndUserSpec : BaseSpecification<Invoice>
+namespace TorreClou.Core.Specifications
 {
-    public ActiveInvoiceByTorrentAndUserSpec(string infoHash, int userId)
-        : base(i =>
-            i.TorrentFile.InfoHash == infoHash &&
-            i.UserId == userId &&
-            i.PaidAt != null &&
-            i.RefundedAt != null 
-        )
+    public class ActiveInvoiceByTorrentAndUserSpec : BaseSpecification<Invoice>
     {
-        AddOrderByDescending(i => i.CreatedAt);
-        AddInclude(i => i.TorrentFile);
+        public ActiveInvoiceByTorrentAndUserSpec(string infoHash, int userId)
+            : base(i =>
+                i.TorrentFile.InfoHash == infoHash &&
+                i.UserId == userId &&
+                i.CancelledAt == null &&  // Not cancelled
+                i.RefundedAt == null      // Not refunded
+            )
+        {
+            AddOrderByDescending(i => i.CreatedAt);
+            AddInclude(i => i.TorrentFile);
+        }
     }
 }

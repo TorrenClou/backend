@@ -6,7 +6,8 @@ using TorreClou.Core.Entities.Marketing;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Models.Pricing;
 using TorreClou.Core.Shared;
- 
+using TorreClou.Core.Specifications;
+
 namespace TorreClou.Application.Services.Torrent
 {
 
