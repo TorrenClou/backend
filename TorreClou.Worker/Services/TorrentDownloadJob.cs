@@ -5,9 +5,11 @@ using TorreClou.Core.Specifications;
 using MonoTorrent;
 using MonoTorrent.Client;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Hangfire;
 using TorreClou.Infrastructure.Workers;
 using TorreClou.Infrastructure.Services;
+using TorreClou.Infrastructure.Settings;
 using StackExchange.Redis;
 
 namespace TorreClou.Worker.Services
@@ -21,8 +23,10 @@ namespace TorreClou.Worker.Services
         IHttpClientFactory httpClientFactory,
         ILogger<TorrentDownloadJob> logger,
         IConnectionMultiplexer redis,
-        TransferSpeedMetrics speedMetrics) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
+        TransferSpeedMetrics speedMetrics,
+        IOptions<BackblazeSettings> backblazeSettings) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
     {
+        private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
         // Save FastResume state every 30 seconds
         private static readonly TimeSpan FastResumeSaveInterval = TimeSpan.FromSeconds(30);
@@ -156,6 +160,19 @@ namespace TorreClou.Worker.Services
                 return job.DownloadPath;
             }
 
+            // Use Backblaze FUSE mount if enabled and available
+            if (_backblazeSettings.UseFuseMount && 
+                !string.IsNullOrEmpty(_backblazeSettings.MountPath) &&
+                Directory.Exists(_backblazeSettings.MountPath))
+            {
+                var b2Path = Path.Combine(_backblazeSettings.MountPath, "torrents", job.Id.ToString());
+                Directory.CreateDirectory(b2Path);
+                Logger.LogInformation("{LogPrefix} Using Backblaze FUSE mount | JobId: {JobId} | Path: {Path}",
+                    LogPrefix, job.Id, b2Path);
+                return b2Path;
+            }
+
+            // Fallback to local disk
             var downloadPath = Path.Combine(AppContext.BaseDirectory, "data", "torrents", job.Id.ToString());
             Directory.CreateDirectory(downloadPath);
 

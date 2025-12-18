@@ -29,20 +29,34 @@ RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
+# Install rclone and fuse for Backblaze B2 mount (to read uploaded files)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fuse3 curl unzip ca-certificates \
+    && curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
+    && unzip rclone-current-linux-amd64.zip \
+    && cp rclone-*-linux-amd64/rclone /usr/bin/ \
+    && chmod 755 /usr/bin/rclone \
+    && rm -rf rclone-* \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create mount point for Backblaze B2
+RUN mkdir -p /mnt/backblaze
+
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Copy published output
 COPY --from=build /app/publish .
 
+# Copy entrypoint script
+COPY TorreClou.GoogleDrive.Worker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Set environment variables
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser /app
-
-# Switch to non-root user
-USER appuser
+RUN chown -R appuser:appuser /app /mnt/backblaze
 
 # Set entry point
-ENTRYPOINT ["dotnet", "TorreClou.GoogleDrive.Worker.dll"]
+ENTRYPOINT ["/entrypoint.sh"]
