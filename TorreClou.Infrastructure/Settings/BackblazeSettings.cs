@@ -5,7 +5,9 @@ namespace TorreClou.Infrastructure.Settings
         public string KeyId { get; set; } = string.Empty;
         public string ApplicationKey { get; set; } = string.Empty;
         public string BucketName { get; set; } = string.Empty;
-        public string Endpoint { get; set; } 
+        public string Endpoint { get; set; } = string.Empty;
+        public string MountPath { get; set; } = "/mnt/backblaze";
+        public bool UseFuseMount { get; set; } = true;
     }
 }
 
