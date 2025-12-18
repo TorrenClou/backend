@@ -30,6 +30,7 @@ namespace TorreClou.Core.Entities.Jobs
         public DateTime? StartedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
         
+        public DateTime? NextRetryAt { get; set; }
       
         public DateTime? LastHeartbeat { get; set; }
 

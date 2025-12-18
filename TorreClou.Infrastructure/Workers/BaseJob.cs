@@ -64,7 +64,17 @@ namespace TorreClou.Infrastructure.Workers
                 span.WithTag("job.user_id", job.UserId)
                     .WithTag("job.status.initial", job.Status.ToString());
 
-                // 2. Check if already completed or cancelled
+                // 2. Check if job is FAILED - never reprocess failed jobs
+                if (job.Status == JobStatus.FAILED)
+                {
+                    Logger.LogWarning("{LogPrefix} Job is FAILED and will not be reprocessed | JobId: {JobId}", 
+                        LogPrefix, jobId);
+                    span.WithTag("job.status", "failed_skipped")
+                        .WithTag("job.status.final", job.Status.ToString());
+                    return;
+                }
+
+                // 3. Check if already completed or cancelled
                 if (IsJobTerminated(job))
                 {
                     Logger.LogInformation("{LogPrefix} Job already finished | JobId: {JobId} | Status: {Status}", 
@@ -74,7 +84,17 @@ namespace TorreClou.Infrastructure.Workers
                     return;
                 }
 
-                // 3. Execute the core job logic
+                // 4. Idempotency check - prevent duplicate execution
+                if (IsJobAlreadyProcessing(job))
+                {
+                    Logger.LogWarning("{LogPrefix} Job is already being processed by another instance | JobId: {JobId} | Status: {Status} | LastHeartbeat: {Heartbeat}", 
+                        LogPrefix, jobId, job.Status, job.LastHeartbeat);
+                    span.WithTag("job.status", "already_processing")
+                        .WithTag("job.status.final", job.Status.ToString());
+                    return;
+                }
+
+                // 5. Execute the core job logic
                 using (Tracing.Tracing.StartChildSpan("job.execute_core"))
                 {
                     await ExecuteCoreAsync(job, cancellationToken);
@@ -103,9 +123,15 @@ namespace TorreClou.Infrastructure.Workers
 
                 if (job != null)
                 {
-                    span.WithTag("job.status.final", JobStatus.FAILED.ToString());
+                    // Check if retries are available before marking as failed
+                    bool hasRetries = HasRetriesAvailable(job);
+                    var finalStatus = hasRetries ? JobStatus.RETRYING : JobStatus.FAILED;
+                    
+                    span.WithTag("job.status.final", finalStatus.ToString())
+                        .WithTag("job.has_retries", hasRetries.ToString());
+                    
                     await OnJobErrorAsync(job, ex);
-                    await MarkJobFailedAsync(job, ex.Message);
+                    await MarkJobFailedAsync(job, ex.Message, hasRetries);
                 }
 
                 throw; // Let Hangfire retry if attempts remain
@@ -159,10 +185,30 @@ namespace TorreClou.Infrastructure.Workers
 
         /// <summary>
         /// Checks if the job is in a terminal state (COMPLETED or CANCELLED).
+        /// Note: FAILED is checked separately and never reprocessed.
         /// </summary>
         protected bool IsJobTerminated(UserJob job)
         {
             return job.Status == JobStatus.COMPLETED || job.Status == JobStatus.CANCELLED;
+        }
+
+        /// <summary>
+        /// Checks if the job is already being processed by another instance.
+        /// Uses heartbeat to detect concurrent execution.
+        /// </summary>
+        protected bool IsJobAlreadyProcessing(UserJob job)
+        {
+            // If job is in active processing states, check heartbeat
+            if (job.Status == JobStatus.PROCESSING || job.Status == JobStatus.UPLOADING)
+            {
+                // If heartbeat is recent (within 5 minutes), assume another instance is processing
+                if (job.LastHeartbeat.HasValue && 
+                    DateTime.UtcNow - job.LastHeartbeat.Value < TimeSpan.FromMinutes(5))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -187,23 +233,63 @@ namespace TorreClou.Infrastructure.Workers
 
         /// <summary>
         /// Marks the job as failed with an error message.
+        /// If retries are available (determined by Hangfire), sets status to RETRYING instead of FAILED.
         /// </summary>
-        protected async Task MarkJobFailedAsync(UserJob job, string errorMessage)
+        protected async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
         {
             try
             {
-                job.Status = JobStatus.FAILED;
-                job.ErrorMessage = errorMessage;
-                job.CompletedAt = DateTime.UtcNow;
+                if (hasRetries)
+                {
+                    // Job will be retried by Hangfire - mark as RETRYING
+                    job.Status = JobStatus.RETRYING;
+                    job.ErrorMessage = errorMessage;
+                    // NextRetryAt will be set by Hangfire's retry mechanism
+                    // We estimate it based on typical retry delays: 60s, 300s, 900s
+                    // This is approximate - Hangfire will handle actual scheduling
+                    job.NextRetryAt = DateTime.UtcNow.AddMinutes(1); // Conservative estimate
+                    
+                    Logger.LogWarning("{LogPrefix} Job marked as RETRYING | JobId: {JobId} | Error: {Error} | NextRetryAt: {NextRetry}", 
+                        LogPrefix, job.Id, errorMessage, job.NextRetryAt);
+                }
+                else
+                {
+                    // All retries exhausted - mark as FAILED
+                    job.Status = JobStatus.FAILED;
+                    job.ErrorMessage = errorMessage;
+                    job.CompletedAt = DateTime.UtcNow;
+                    job.NextRetryAt = null; // Clear retry time
+                    
+                    Logger.LogError("{LogPrefix} Job marked as FAILED (no retries remaining) | JobId: {JobId} | Error: {Error}", 
+                        LogPrefix, job.Id, errorMessage);
+                }
+                
                 await UnitOfWork.Complete();
-
-                Logger.LogError("{LogPrefix} Job marked as failed | JobId: {JobId} | Error: {Error}", 
-                    LogPrefix, job.Id, errorMessage);
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Failed to mark job as failed | JobId: {JobId}", LogPrefix, job.Id);
+                Logger.LogError(ex, "{LogPrefix} Failed to mark job status | JobId: {JobId}", LogPrefix, job.Id);
             }
+        }
+
+        /// <summary>
+        /// Determines if Hangfire retries are likely available for this job.
+        /// This is a heuristic - Hangfire's AutomaticRetry attribute controls actual retries.
+        /// </summary>
+        protected bool HasRetriesAvailable(UserJob job)
+        {
+            // If job is already FAILED, no retries
+            if (job.Status == JobStatus.FAILED)
+                return false;
+
+            // If job is in RETRYING state, assume retries might still be available
+            // (Hangfire will eventually mark as FAILED when exhausted)
+            if (job.Status == JobStatus.RETRYING)
+                return true;
+
+            // For other states, assume retries might be available
+            // Hangfire's AutomaticRetry will handle actual retry logic
+            return true;
         }
     }
 }

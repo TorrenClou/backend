@@ -33,6 +33,30 @@ namespace TorreClou.Application.Services
             if (invoice.JobId != null)
                 return Result<JobCreationResult>.Failure("JOB_ALREADY_EXISTS", "A job has already been created for this invoice.");
 
+            // 1.5. Check for existing active/retrying jobs for the same torrent
+            var existingJobSpec = new BaseSpecification<UserJob>(
+                j => j.UserId == userId && 
+                     j.RequestFileId == invoice.TorrentFileId &&
+                     (j.Status == JobStatus.RETRYING || 
+                      j.Status == JobStatus.QUEUED || 
+                      j.Status == JobStatus.PROCESSING || 
+                      j.Status == JobStatus.UPLOADING));
+            var existingJob = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(existingJobSpec);
+            
+            if (existingJob != null)
+            {
+                if (existingJob.Status == JobStatus.RETRYING)
+                {
+                    var nextRetryMessage = existingJob.NextRetryAt.HasValue 
+                        ? $" Next retry scheduled for: {existingJob.NextRetryAt.Value:yyyy-MM-dd HH:mm:ss UTC}"
+                        : "";
+                    return Result<JobCreationResult>.Failure("JOB_RETRYING", 
+                        $"A job for this torrent is currently retrying. Job ID: {existingJob.Id}.{nextRetryMessage}");
+                }
+                return Result<JobCreationResult>.Failure("JOB_ALREADY_EXISTS", 
+                    $"A job for this torrent already exists and is in progress. Job ID: {existingJob.Id}. Status: {existingJob.Status}");
+            }
+
             // 2. Find user's default StorageProfile
             var storageProfileSpec = new BaseSpecification<UserStorageProfile>(
                 sp => sp.UserId == userId && sp.IsDefault && sp.IsActive
@@ -168,12 +192,14 @@ namespace TorreClou.Application.Services
                 ActiveJobs = allJobs.Count(job => 
                     job.Status == JobStatus.QUEUED || 
                     job.Status == JobStatus.PROCESSING || 
-                    job.Status == JobStatus.UPLOADING),
+                    job.Status == JobStatus.UPLOADING ||
+                    job.Status == JobStatus.RETRYING),
                 CompletedJobs = allJobs.Count(job => job.Status == JobStatus.COMPLETED),
                 FailedJobs = allJobs.Count(job => job.Status == JobStatus.FAILED),
                 QueuedJobs = allJobs.Count(job => job.Status == JobStatus.QUEUED),
                 ProcessingJobs = allJobs.Count(job => job.Status == JobStatus.PROCESSING),
                 UploadingJobs = allJobs.Count(job => job.Status == JobStatus.UPLOADING),
+                RetryingJobs = allJobs.Count(job => job.Status == JobStatus.RETRYING),
                 CancelledJobs = allJobs.Count(job => job.Status == JobStatus.CANCELLED)
             };
 

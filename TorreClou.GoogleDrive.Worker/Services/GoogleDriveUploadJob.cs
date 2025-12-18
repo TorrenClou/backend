@@ -42,14 +42,34 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
         protected override async Task ExecuteCoreAsync(UserJob job, CancellationToken cancellationToken)
         {
-            // 1. Validate job state - must be in UPLOADING status
-            if (job.Status != JobStatus.UPLOADING)
+            // 1. Idempotency check - if job is already completed, skip
+            if (job.Status == JobStatus.COMPLETED)
+            {
+                Logger.LogInformation("{LogPrefix} Job already completed, skipping execution | JobId: {JobId}", 
+                    LogPrefix, job.Id);
+                return;
+            }
+
+            // 2. Validate job state - must be in UPLOADING or RETRYING status
+            if (job.Status != JobStatus.UPLOADING && job.Status != JobStatus.RETRYING)
             {
                 Logger.LogWarning("{LogPrefix} Unexpected job status | JobId: {JobId} | Status: {Status}", 
                     LogPrefix, job.Id, job.Status);
+                // Don't return - allow execution if in unexpected state (might be recovery scenario)
             }
 
-            // 2. Validate download path exists
+            // 3. If job is retrying, log it
+            if (job.Status == JobStatus.RETRYING)
+            {
+                Logger.LogInformation("{LogPrefix} Retrying job | JobId: {JobId} | NextRetryAt: {NextRetry} | Error: {Error}", 
+                    LogPrefix, job.Id, job.NextRetryAt, job.ErrorMessage);
+                // Update status back to UPLOADING for this retry attempt
+                job.Status = JobStatus.UPLOADING;
+                job.CurrentState = "Retrying upload...";
+                await UnitOfWork.Complete();
+            }
+
+            // 4. Validate download path exists
             if (string.IsNullOrEmpty(job.DownloadPath))
             {
                 await MarkJobFailedAsync(job, "Download path is not set.");
@@ -79,7 +99,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 return;
             }
 
-            // 3. Validate storage profile
+            // 5. Validate storage profile
             if (job.StorageProfile == null)
             {
                 await MarkJobFailedAsync(job, "Storage profile not found.");
@@ -92,7 +112,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 return;
             }
 
-            // 4. Get access token
+            // 6. Get access token
             await UpdateHeartbeatAsync(job, "Getting access token...");
             var tokenResult = await googleDriveService.GetAccessTokenAsync(job.StorageProfile.CredentialsJson, cancellationToken);
             if (tokenResult.IsFailure)
@@ -103,7 +123,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             var accessToken = tokenResult.Value;
 
-            // 5. Get files to upload (excluding .dht, .fresume, .torrent files)
+            // 7. Get files to upload (excluding .dht, .fresume, .torrent files)
             var filesToUpload = GetFilesToUpload(job.DownloadPath);
             if (filesToUpload.Length == 0)
             {
@@ -116,7 +136,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             Logger.LogInformation("{LogPrefix} Found {FileCount} files to upload | JobId: {JobId} | TotalSize: {SizeMB:F2} MB",
                 LogPrefix, filesToUpload.Length, job.Id, totalBytes / (1024.0 * 1024.0));
 
-            // 6. Configure the progress context
+            // 8. Configure the progress context
             progressContext.Configure(
                 job.Id,
                 totalBytes,
@@ -128,7 +148,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     await UnitOfWork.Complete();
                 });
 
-            // 7. Create root folder in Google Drive
+            // 9. Create root folder in Google Drive (idempotent - will create new folder each time)
             await UpdateHeartbeatAsync(job, "Creating folder in Google Drive...");
             var parentFolder = $"Torrent_{job.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             var folderResult = await googleDriveService.CreateFolderAsync(parentFolder, null, accessToken, cancellationToken);
@@ -146,20 +166,34 @@ namespace TorreClou.GoogleDrive.Worker.Services
             var folderIdMap = await CreateFolderHierarchyAsync(
                 filesToUpload, job.DownloadPath, rootFolderId, accessToken, cancellationToken);
 
-            // 9. Upload files
-            await UploadFilesAsync(job, filesToUpload, folderIdMap, accessToken, cancellationToken);
+            // 9. Upload files - this must complete successfully before marking as COMPLETED
+            var uploadResult = await UploadFilesAsync(job, filesToUpload, folderIdMap, accessToken, cancellationToken);
 
-            // 10. Record final upload metrics
+            // 10. Only mark as completed if ALL files uploaded successfully
+            if (!uploadResult.AllFilesUploaded)
+            {
+                var errorMessage = $"Upload incomplete: {uploadResult.FailedFiles} of {uploadResult.TotalFiles} files failed to upload.";
+                Logger.LogError("{LogPrefix} Upload incomplete | JobId: {JobId} | Failed: {Failed}/{Total}", 
+                    LogPrefix, job.Id, uploadResult.FailedFiles, uploadResult.TotalFiles);
+                
+                // Mark as failed - Hangfire will retry if configured
+                await MarkJobFailedAsync(job, errorMessage, hasRetries: true);
+                return;
+            }
+
+            // 11. Record final upload metrics (only if all files succeeded)
             var uploadDuration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
             speedMetrics.RecordUploadComplete(job.Id, job.UserId, "googledrive_upload", totalBytes, uploadDuration);
 
-            // 11. Mark as completed
+            // 12. Mark as completed - ALL files uploaded successfully
             job.Status = JobStatus.COMPLETED;
             job.CompletedAt = DateTime.UtcNow;
             job.CurrentState = "Upload completed successfully";
+            job.NextRetryAt = null; // Clear any retry time
             await UnitOfWork.Complete();
 
-            Logger.LogInformation("{LogPrefix} Job completed successfully | JobId: {JobId}", LogPrefix, job.Id);
+            Logger.LogInformation("{LogPrefix} Job completed successfully | JobId: {JobId} | Files: {Files}", 
+                LogPrefix, job.Id, uploadResult.TotalFiles);
         }
 
         private FileInfo[] GetFilesToUpload(string downloadPath)
@@ -250,16 +284,26 @@ namespace TorreClou.GoogleDrive.Worker.Services
             return folderIdMap;
         }
 
-        private async Task UploadFilesAsync(
+        private class UploadResult
+        {
+            public int TotalFiles { get; set; }
+            public int FailedFiles { get; set; }
+            public bool AllFilesUploaded => FailedFiles == 0;
+        }
+
+        private async Task<UploadResult> UploadFilesAsync(
             UserJob job,
             FileInfo[] files,
             Dictionary<string, string> folderIdMap,
             string accessToken,
             CancellationToken cancellationToken)
         {
-            var totalFiles = files.Length;
+            var result = new UploadResult
+            {
+                TotalFiles = files.Length
+            };
+            
             var uploadedFiles = 0;
-            var failedFiles = 0;
             var lastUploadTime = DateTime.UtcNow;
             var lastUploadedBytes = 0L;
 
@@ -281,7 +325,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 }
 
                 Logger.LogInformation("{LogPrefix} Uploading file {Current}/{Total} | JobId: {JobId} | File: {File}",
-                    LogPrefix, uploadedFiles, totalFiles, job.Id, file.Name);
+                    LogPrefix, uploadedFiles, result.TotalFiles, job.Id, file.Name);
 
                 // Upload file to Google Drive (progress is reported via context)
                 var uploadResult = await googleDriveService.UploadFileAsync(
@@ -294,7 +338,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
                 if (uploadResult.IsFailure)
                 {
-                    failedFiles++;
+                    result.FailedFiles++;
                     Logger.LogError("{LogPrefix} Failed to upload file | JobId: {JobId} | File: {File} | Error: {Error}",
                         LogPrefix, job.Id, file.Name, uploadResult.Error.Message);
                     
@@ -347,11 +391,13 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 }
             }
 
-            if (failedFiles > 0)
+            if (result.FailedFiles > 0)
             {
                 Logger.LogWarning("{LogPrefix} Upload completed with {FailedCount} failed files | JobId: {JobId}",
-                    LogPrefix, failedFiles, job.Id);
+                    LogPrefix, result.FailedFiles, job.Id);
             }
+
+            return result;
         }
     }
 }
