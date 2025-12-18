@@ -22,8 +22,10 @@ COPY TorreClou.GoogleDrive.Worker/ TorreClou.GoogleDrive.Worker/
 
 # Build and publish
 WORKDIR /src/TorreClou.GoogleDrive.Worker
-RUN dotnet build -c Release --no-restore -o /app/build
-RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
+# Restore again after copying source to ensure all dependencies are resolved
+RUN dotnet restore
+RUN dotnet build -c Release -o /app/build
+RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
 
 # Stage 2: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
