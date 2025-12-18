@@ -252,6 +252,9 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<DateTime?>("LastHeartbeat")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("NextRetryAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("RequestFileId")
                         .HasColumnType("integer");
 

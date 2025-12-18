@@ -39,10 +39,11 @@ namespace TorreClou.Infrastructure.Filters
 
                 if (job != null && job.Status != JobStatus.FAILED)
                 {
-                    logger.LogError("[Filter] Marking job {JobId} as FAILED due to Hangfire failure.", jobId);
+                    logger.LogError("[Filter] Marking job {JobId} as FAILED due to Hangfire failure (all retries exhausted).", jobId);
                     job.Status = JobStatus.FAILED;
                     job.ErrorMessage = $"System Failure: {error}";
                     job.CompletedAt = DateTime.UtcNow;
+                    job.NextRetryAt = null; // Clear retry time
                     await unitOfWork.Complete();
                 }
             }

@@ -24,7 +24,7 @@
         Failed,    // الفيزا اترفضا
         Expired    // اللينك مدته انتهت
     }
-    public enum JobStatus { QUEUED, PROCESSING, UPLOADING, COMPLETED, FAILED, CANCELLED }
+    public enum JobStatus { QUEUED, PROCESSING, UPLOADING, RETRYING, COMPLETED, FAILED, CANCELLED }
 
     public enum JobType { Torrent, Other }
 
