@@ -27,6 +27,8 @@ namespace TorreClou.Worker
             IServiceScopeFactory serviceScopeFactory) : base(logger, redis)
         {
             _serviceScopeFactory = serviceScopeFactory;
+            Logger.LogInformation("[TORRENT_WORKER] TorrentWorker initialized | Stream: {Stream} | Group: {Group}", 
+                StreamKey, ConsumerGroupName);
         }
 
         protected override async Task<bool> ProcessJobAsync(StreamEntry entry, CancellationToken cancellationToken)
