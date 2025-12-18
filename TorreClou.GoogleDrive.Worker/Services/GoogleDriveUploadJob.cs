@@ -21,9 +21,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
         IGoogleDriveJob googleDriveService,
         IUploadProgressContext progressContext,
         ITransferSpeedMetrics speedMetrics,
-        IOptions<BackblazeSettings> backblazeSettings,
-        IJobLeaseService leaseService,
-        IOptions<JobLeaseSettings> leaseSettings) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger, leaseService, leaseSettings)
+        IOptions<BackblazeSettings> backblazeSettings) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger)
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
@@ -44,8 +42,6 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
         protected override async Task ExecuteCoreAsync(UserJob job, CancellationToken cancellationToken)
         {
-            // Note: Lease acquisition and status checks are handled by BaseJob.ExecuteAsync
-            
             // Handle job status transitions for business logic
             if (job.Status == JobStatus.PENDING_UPLOAD)
             {

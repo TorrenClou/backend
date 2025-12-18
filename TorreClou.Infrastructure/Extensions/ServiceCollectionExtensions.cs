@@ -49,10 +49,6 @@ namespace TorreClou.Infrastructure.Extensions
             // Transfer Speed Metrics (singleton for metrics collection)
             services.AddSingleton<ITransferSpeedMetrics, TransferSpeedMetrics>();
 
-            // Job Lease Service (scoped for per-request lease management)
-            services.Configure<JobLeaseSettings>(configuration.GetSection("JobLease"));
-            services.AddScoped<IJobLeaseService, JobLeaseService>();
-
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {
                 var interceptor = sp.GetRequiredService<UpdateAuditableEntitiesInterceptor>();

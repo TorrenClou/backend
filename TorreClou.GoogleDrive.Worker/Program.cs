@@ -1,6 +1,8 @@
 using StackExchange.Redis;
 using TorreClou.GoogleDrive.Worker;
 using TorreClou.GoogleDrive.Worker.Services;
+using TorreClou.GoogleDrive.Worker.Services.Strategies;
+using TorreClou.Core.Entities.Jobs;
 using Microsoft.EntityFrameworkCore;
 using TorreClou.Infrastructure.Data;
 using TorreClou.Infrastructure.Repositories;
@@ -124,18 +126,27 @@ builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection
 builder.Services.Configure<BackblazeSettings>(builder.Configuration.GetSection("Backblaze"));
 builder.Services.AddScoped<IGoogleDriveJob, GoogleDriveJobService>();
 
-// Job Lease Service (for preventing duplicate job execution)
-builder.Services.Configure<JobLeaseSettings>(builder.Configuration.GetSection("JobLease"));
-builder.Services.AddScoped<IJobLeaseService, JobLeaseService>();
-
 // Upload Progress Context (scoped per job for progress tracking and resume support)
 builder.Services.AddScoped<IUploadProgressContext, UploadProgressContext>();
-    // Transfer Speed Metrics (singleton for metrics collection)
-    builder.Services.AddScoped<ITransferSpeedMetrics,TransferSpeedMetrics>();
+// Transfer Speed Metrics (singleton for metrics collection)
+builder.Services.AddScoped<ITransferSpeedMetrics, TransferSpeedMetrics>();
 
-    // Background Services
-    // Google Drive Worker - Redis stream consumer for upload jobs
-    builder.Services.AddHostedService<GoogleDriveWorker>();
+// Job Health Monitor Configuration
+builder.Services.Configure<JobHealthMonitorOptions>(options =>
+{
+    options.CheckInterval = TimeSpan.FromMinutes(2);
+    options.StaleJobThreshold = TimeSpan.FromMinutes(5);
+});
+
+// Recovery Strategies (for JobHealthMonitor)
+builder.Services.AddSingleton<IJobRecoveryStrategy, GoogleDriveRecoveryStrategy>();
+
+// Background Services
+// 1. Job Health Monitor - Generic monitoring and recovery of orphaned jobs (from Infrastructure)
+builder.Services.AddHostedService<JobHealthMonitor<UserJob>>();
+
+// 2. Google Drive Worker - Redis stream consumer for upload jobs
+builder.Services.AddHostedService<GoogleDriveWorker>();
 
 var host = builder.Build();
 host.Run();
