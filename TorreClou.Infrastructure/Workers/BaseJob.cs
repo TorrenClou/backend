@@ -4,6 +4,8 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;
 using TorreClou.Infrastructure.Tracing;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TorreClou.Infrastructure.Settings;
 
 namespace TorreClou.Infrastructure.Workers
 {
@@ -16,16 +18,35 @@ namespace TorreClou.Infrastructure.Workers
     {
         protected readonly IUnitOfWork UnitOfWork;
         protected readonly ILogger<TJob> Logger;
+        protected readonly IJobLeaseService LeaseService;
+        protected readonly JobLeaseSettings LeaseSettings;
+        private readonly string _workerId;
 
         /// <summary>
         /// Log prefix for consistent logging (e.g., "[DOWNLOAD]", "[UPLOAD]").
         /// </summary>
         protected abstract string LogPrefix { get; }
 
-        protected BaseJob(IUnitOfWork unitOfWork, ILogger<TJob> logger)
+        protected BaseJob(
+            IUnitOfWork unitOfWork, 
+            ILogger<TJob> logger,
+            IJobLeaseService leaseService,
+            IOptions<JobLeaseSettings> leaseSettings)
         {
             UnitOfWork = unitOfWork;
             Logger = logger;
+            LeaseService = leaseService;
+            LeaseSettings = leaseSettings.Value;
+            _workerId = GenerateWorkerId();
+        }
+
+        /// <summary>
+        /// Generates a unique worker identifier for lease ownership.
+        /// Format: MachineName-ProcessId-ThreadId
+        /// </summary>
+        private static string GenerateWorkerId()
+        {
+            return $"{Environment.MachineName}-{Environment.ProcessId}-{Thread.CurrentThread.ManagedThreadId}";
         }
 
         /// <summary>
@@ -84,21 +105,33 @@ namespace TorreClou.Infrastructure.Workers
                     return;
                 }
 
-                // 4. Idempotency check - prevent duplicate execution
-                if (IsJobAlreadyProcessing(job))
+                // 4. Atomically acquire lease to prevent duplicate execution
+                var leaseDuration = TimeSpan.FromMinutes(LeaseSettings.LeaseDurationMinutes);
+                var leaseResult = await LeaseService.TryAcquireLeaseAsync(jobId, _workerId, leaseDuration);
+                
+                if (!leaseResult.Success)
                 {
-                    Logger.LogWarning("{LogPrefix} Job is already being processed by another instance | JobId: {JobId} | Status: {Status} | LastHeartbeat: {Heartbeat}", 
-                        LogPrefix, jobId, job.Status, job.LastHeartbeat);
-                    span.WithTag("job.status", "already_processing")
+                    Logger.LogWarning(
+                        "{LogPrefix} Failed to acquire lease | JobId: {JobId} | Reason: {Reason} | WorkerId: {Worker}",
+                        LogPrefix, jobId, leaseResult.Reason, _workerId);
+                    span.WithTag("job.status", "lease_acquisition_failed")
+                        .WithTag("job.lease_reason", leaseResult.Reason.ToString())
                         .WithTag("job.status.final", job.Status.ToString());
                     return;
                 }
+
+                Logger.LogInformation(
+                    "{LogPrefix} Lease acquired | JobId: {JobId} | WorkerId: {Worker} | LeaseDuration: {Duration}min",
+                    LogPrefix, jobId, _workerId, LeaseSettings.LeaseDurationMinutes);
 
                 // 5. Execute the core job logic
                 using (Tracing.Tracing.StartChildSpan("job.execute_core"))
                 {
                     await ExecuteCoreAsync(job, cancellationToken);
                 }
+                
+                // Release lease on successful completion
+                await LeaseService.ReleaseLeaseAsync(job.Id, _workerId);
                 
                 span.WithTag("job.status", "success")
                     .WithTag("job.status.final", job.Status.ToString());
@@ -112,6 +145,8 @@ namespace TorreClou.Infrastructure.Workers
                 {
                     span.WithTag("job.status.final", job.Status.ToString());
                     await OnJobCancelledAsync(job);
+                    // Release lease on cancellation
+                    await LeaseService.ReleaseLeaseAsync(job.Id, _workerId);
                 }
                 throw; // Let Hangfire handle the cancellation
             }
@@ -132,6 +167,9 @@ namespace TorreClou.Infrastructure.Workers
                     
                     await OnJobErrorAsync(job, ex);
                     await MarkJobFailedAsync(job, ex.Message, hasRetries);
+                    
+                    // Release lease on error (will be reacquired on retry if needed)
+                    await LeaseService.ReleaseLeaseAsync(job.Id, _workerId);
                 }
 
                 throw; // Let Hangfire retry if attempts remain
@@ -192,56 +230,9 @@ namespace TorreClou.Infrastructure.Workers
             return job.Status == JobStatus.COMPLETED || job.Status == JobStatus.CANCELLED;
         }
 
-        /// <summary>
-        /// Checks if the job is already being processed by another instance.
-        /// Uses heartbeat to detect concurrent execution.
-        /// </summary>
-        protected bool IsJobAlreadyProcessing(UserJob job)
-        {
-            // Allow PENDING_UPLOAD and RETRYING to proceed - they need to transition to active states
-            if (job.Status == JobStatus.PENDING_UPLOAD || job.Status == JobStatus.RETRYING)
-            {
-                return false;
-            }
-
-            // If job is in active processing states, check heartbeat
-            if (job.Status == JobStatus.PROCESSING || job.Status == JobStatus.UPLOADING)
-            {
-                if (!job.LastHeartbeat.HasValue)
-                {
-                    // No heartbeat means job hasn't started processing yet - allow it
-                    return false;
-                }
-
-                var heartbeatAge = DateTime.UtcNow - job.LastHeartbeat.Value;
-                
-                // If heartbeat is very recent (within 30 seconds), it might be from a crashed process
-                // Allow it to proceed if it's a retry scenario (Hangfire retry mechanism)
-                if (heartbeatAge < TimeSpan.FromSeconds(30))
-                {
-                    // Very recent heartbeat - could be from a crashed process
-                    // Allow it to proceed if there's an error message (indicating a retry)
-                    if (!string.IsNullOrEmpty(job.ErrorMessage))
-                    {
-                        Logger.LogInformation("{LogPrefix} Job has recent heartbeat but error message suggests retry - allowing execution | JobId: {JobId} | HeartbeatAge: {Age}s", 
-                            LogPrefix, job.Id, heartbeatAge.TotalSeconds);
-                        return false;
-                    }
-                    // Otherwise, assume another instance is actively processing
-                    return true;
-                }
-                
-                // If heartbeat is recent (within 5 minutes), assume another instance is processing
-                if (heartbeatAge < TimeSpan.FromMinutes(5))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
 
         /// <summary>
-        /// Updates the job's heartbeat and current state.
+        /// Updates the job's heartbeat and current state, and refreshes the lease.
         /// </summary>
         protected async Task UpdateHeartbeatAsync(UserJob job, string? state = null)
         {
@@ -252,6 +243,18 @@ namespace TorreClou.Infrastructure.Workers
                 {
                     job.CurrentState = state;
                 }
+                
+                // Refresh the lease to extend execution time
+                var leaseDuration = TimeSpan.FromMinutes(LeaseSettings.LeaseDurationMinutes);
+                var refreshed = await LeaseService.RefreshLeaseAsync(job.Id, _workerId, leaseDuration);
+                
+                if (!refreshed)
+                {
+                    Logger.LogWarning(
+                        "{LogPrefix} Failed to refresh lease during heartbeat | JobId: {JobId} | WorkerId: {Worker}",
+                        LogPrefix, job.Id, _workerId);
+                }
+                
                 await UnitOfWork.Complete();
             }
             catch (Exception ex)

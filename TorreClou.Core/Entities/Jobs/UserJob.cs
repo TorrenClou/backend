@@ -36,6 +36,17 @@ namespace TorreClou.Core.Entities.Jobs
 
         public string? HangfireJobId { get; set; }
 
+        /// <summary>
+        /// Unique identifier of the worker instance that owns the lease.
+        /// Format: MachineName-ProcessId-ThreadId
+        /// </summary>
+        public string? LeaseOwnerId { get; set; }
+
+        /// <summary>
+        /// When the lease expires. If null or in the past, the lease is available.
+        /// </summary>
+        public DateTime? LeaseExpiresAt { get; set; }
+
         
         public string? DownloadPath { get; set; }
 

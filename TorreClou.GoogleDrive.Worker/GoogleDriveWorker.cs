@@ -42,7 +42,7 @@ namespace TorreClou.GoogleDrive.Worker
                     return false;
                 }
 
-                // Fetch job from database
+                // Fetch job from database for validation
                 var job = await unitOfWork.Repository<UserJob>().GetByIdAsync(jobId);
                 if (job == null)
                 {
@@ -50,16 +50,8 @@ namespace TorreClou.GoogleDrive.Worker
                     return false;
                 }
 
-                // Check if job is ready for upload processing
-                // Accept PENDING_UPLOAD (new jobs from torrent worker), UPLOADING (in-progress), and RETRYING (retry attempts)
-                if (job.Status != JobStatus.UPLOADING && 
-                    job.Status != JobStatus.PENDING_UPLOAD && 
-                    job.Status != JobStatus.RETRYING)
-                {
-                    Logger.LogInformation("[GOOGLE_DRIVE_WORKER] Job not ready for upload processing | JobId: {JobId} | Status: {Status}", 
-                        jobId, job.Status);
-                    return true;
-                }
+                // Note: Lease acquisition is handled by BaseJob.ExecuteAsync in Hangfire
+                // We just enqueue the job here - Hangfire will handle duplicate prevention via leases
 
                 Logger.LogInformation("[GOOGLE_DRIVE_WORKER] Enqueuing Google Drive upload job to Hangfire | JobId: {JobId}", jobId);
 
