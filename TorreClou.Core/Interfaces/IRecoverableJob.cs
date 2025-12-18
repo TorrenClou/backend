@@ -11,7 +11,7 @@ namespace TorreClou.Core.Interfaces
         int Id { get; }
 
         /// <summary>
-        /// Current status of the job (QUEUED, PROCESSING, UPLOADING, etc.)
+        /// Current status of the job (QUEUED, DOWNLOADING, PROCESSING, PENDING_UPLOAD, UPLOADING, etc.)
         /// </summary>
         JobStatus Status { get; set; }
 

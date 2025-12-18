@@ -85,9 +85,9 @@ namespace TorreClou.Infrastructure.Services
 
             var staleTime = DateTime.UtcNow - _options.StaleJobThreshold;
 
-            // Find jobs stuck in PROCESSING or UPLOADING with stale heartbeat
+            // Find jobs stuck in DOWNLOADING/PROCESSING or UPLOADING with stale heartbeat
             var stuckJobsSpec = new BaseSpecification<TJob>(j =>
-                (j.Status == JobStatus.DOWNLOADING || j.Status == JobStatus.UPLOADING) &&
+                (j.Status == JobStatus.DOWNLOADING || j.Status == JobStatus.PROCESSING || j.Status == JobStatus.UPLOADING) &&
                 (
                     (j.LastHeartbeat != null && j.LastHeartbeat < staleTime) ||
                     (j.LastHeartbeat == null && j.StartedAt != null && j.StartedAt < staleTime)
