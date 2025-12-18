@@ -4,8 +4,6 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;
 using TorreClou.Infrastructure.Tracing;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using TorreClou.Infrastructure.Settings;
 
 namespace TorreClou.Infrastructure.Workers
 {
@@ -18,9 +16,6 @@ namespace TorreClou.Infrastructure.Workers
     {
         protected readonly IUnitOfWork UnitOfWork;
         protected readonly ILogger<TJob> Logger;
-        protected readonly IJobLeaseService LeaseService;
-        protected readonly JobLeaseSettings LeaseSettings;
-        private readonly string _workerId;
 
         /// <summary>
         /// Log prefix for consistent logging (e.g., "[DOWNLOAD]", "[UPLOAD]").
@@ -29,24 +24,10 @@ namespace TorreClou.Infrastructure.Workers
 
         protected BaseJob(
             IUnitOfWork unitOfWork, 
-            ILogger<TJob> logger,
-            IJobLeaseService leaseService,
-            IOptions<JobLeaseSettings> leaseSettings)
+            ILogger<TJob> logger)
         {
             UnitOfWork = unitOfWork;
             Logger = logger;
-            LeaseService = leaseService;
-            LeaseSettings = leaseSettings.Value;
-            _workerId = GenerateWorkerId();
-        }
-
-        /// <summary>
-        /// Generates a unique worker identifier for lease ownership.
-        /// Format: MachineName-ProcessId-ThreadId
-        /// </summary>
-        private static string GenerateWorkerId()
-        {
-            return $"{Environment.MachineName}-{Environment.ProcessId}-{Thread.CurrentThread.ManagedThreadId}";
         }
 
         /// <summary>
@@ -105,33 +86,11 @@ namespace TorreClou.Infrastructure.Workers
                     return;
                 }
 
-                // 4. Atomically acquire lease to prevent duplicate execution
-                var leaseDuration = TimeSpan.FromMinutes(LeaseSettings.LeaseDurationMinutes);
-                var leaseResult = await LeaseService.TryAcquireLeaseAsync(jobId, _workerId, leaseDuration);
-                
-                if (!leaseResult.Success)
-                {
-                    Logger.LogWarning(
-                        "{LogPrefix} Failed to acquire lease | JobId: {JobId} | Reason: {Reason} | WorkerId: {Worker}",
-                        LogPrefix, jobId, leaseResult.Reason, _workerId);
-                    span.WithTag("job.status", "lease_acquisition_failed")
-                        .WithTag("job.lease_reason", leaseResult.Reason.ToString())
-                        .WithTag("job.status.final", job.Status.ToString());
-                    return;
-                }
-
-                Logger.LogInformation(
-                    "{LogPrefix} Lease acquired | JobId: {JobId} | WorkerId: {Worker} | LeaseDuration: {Duration}min",
-                    LogPrefix, jobId, _workerId, LeaseSettings.LeaseDurationMinutes);
-
-                // 5. Execute the core job logic
+                // 4. Execute the core job logic
                 using (Tracing.Tracing.StartChildSpan("job.execute_core"))
                 {
                     await ExecuteCoreAsync(job, cancellationToken);
                 }
-                
-                // Release lease on successful completion
-                await LeaseService.ReleaseLeaseAsync(job.Id, _workerId);
                 
                 span.WithTag("job.status", "success")
                     .WithTag("job.status.final", job.Status.ToString());
@@ -145,8 +104,6 @@ namespace TorreClou.Infrastructure.Workers
                 {
                     span.WithTag("job.status.final", job.Status.ToString());
                     await OnJobCancelledAsync(job);
-                    // Release lease on cancellation
-                    await LeaseService.ReleaseLeaseAsync(job.Id, _workerId);
                 }
                 throw; // Let Hangfire handle the cancellation
             }
@@ -167,9 +124,6 @@ namespace TorreClou.Infrastructure.Workers
                     
                     await OnJobErrorAsync(job, ex);
                     await MarkJobFailedAsync(job, ex.Message, hasRetries);
-                    
-                    // Release lease on error (will be reacquired on retry if needed)
-                    await LeaseService.ReleaseLeaseAsync(job.Id, _workerId);
                 }
 
                 throw; // Let Hangfire retry if attempts remain
@@ -232,7 +186,7 @@ namespace TorreClou.Infrastructure.Workers
 
 
         /// <summary>
-        /// Updates the job's heartbeat and current state, and refreshes the lease.
+        /// Updates the job's heartbeat and current state.
         /// </summary>
         protected async Task UpdateHeartbeatAsync(UserJob job, string? state = null)
         {
@@ -242,17 +196,6 @@ namespace TorreClou.Infrastructure.Workers
                 if (state != null)
                 {
                     job.CurrentState = state;
-                }
-                
-                // Refresh the lease to extend execution time
-                var leaseDuration = TimeSpan.FromMinutes(LeaseSettings.LeaseDurationMinutes);
-                var refreshed = await LeaseService.RefreshLeaseAsync(job.Id, _workerId, leaseDuration);
-                
-                if (!refreshed)
-                {
-                    Logger.LogWarning(
-                        "{LogPrefix} Failed to refresh lease during heartbeat | JobId: {JobId} | WorkerId: {Worker}",
-                        LogPrefix, job.Id, _workerId);
                 }
                 
                 await UnitOfWork.Complete();

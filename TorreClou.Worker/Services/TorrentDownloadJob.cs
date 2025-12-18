@@ -25,9 +25,7 @@ namespace TorreClou.Worker.Services
         ILogger<TorrentDownloadJob> logger,
         IConnectionMultiplexer redis,
         ITransferSpeedMetrics speedMetrics,
-        IOptions<BackblazeSettings> backblazeSettings,
-        IJobLeaseService leaseService,
-        IOptions<JobLeaseSettings> leaseSettings) : BaseJob<TorrentDownloadJob>(unitOfWork, logger, leaseService, leaseSettings)
+        IOptions<BackblazeSettings> backblazeSettings) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
