@@ -22,6 +22,11 @@ namespace TorreClou.Infrastructure.Workers
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            Logger.LogInformation(
+                "[WORKER_STARTUP] Starting worker | Consumer: {Consumer} | Stream: {Stream} | Group: {Group}",
+                ConsumerName, StreamKey, ConsumerGroupName
+            );
+
             var db = Redis.GetDatabase();
 
             // Ensure consumer group exists
@@ -31,7 +36,7 @@ namespace TorreClou.Infrastructure.Workers
             await ClaimPendingMessagesAsync(db, stoppingToken);
 
             Logger.LogInformation(
-                "Worker started | Consumer: {Consumer} | Stream: {Stream} | Group: {Group}",
+                "[WORKER_STARTUP] Worker started and listening | Consumer: {Consumer} | Stream: {Stream} | Group: {Group}",
                 ConsumerName, StreamKey, ConsumerGroupName
             );
 
