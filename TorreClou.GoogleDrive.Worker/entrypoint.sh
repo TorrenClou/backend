@@ -49,8 +49,10 @@ EOF
     pkill -f "rclone.*backblaze.*nasrika" 2>/dev/null || true
     sleep 1
     
-    # Ensure mount point exists and is empty
+    # Ensure mount point exists with correct permissions (root-owned for FUSE)
     mkdir -p /mnt/backblaze
+    chown root:root /mnt/backblaze
+    chmod 755 /mnt/backblaze
     
     # Check if FUSE is available
     if [ ! -e /dev/fuse ]; then
@@ -58,6 +60,13 @@ EOF
         echo "[ENTRYPOINT] Docker container must be run with --privileged or --cap-add SYS_ADMIN --device /dev/fuse"
         echo "[ENTRYPOINT] Example: docker run --cap-add SYS_ADMIN --device /dev/fuse ..."
         exit 1
+    fi
+    
+    # Check FUSE device permissions
+    if [ ! -r /dev/fuse ] || [ ! -w /dev/fuse ]; then
+        echo "[ENTRYPOINT] WARNING: FUSE device may not have correct permissions"
+        # Try to fix permissions (may not work in all environments)
+        chmod 666 /dev/fuse 2>/dev/null || true
     fi
     
     # Try to load fuse module if modprobe is available (may not work in containers)
@@ -70,14 +79,17 @@ EOF
     
     # Mount the bucket (read-heavy for Google Drive uploads)
     # Run in background instead of daemon mode to avoid timeout issues
+    # Use --allow-other and --allow-non-empty to handle existing mounts
     echo "[ENTRYPOINT] Starting rclone mount in background..."
     nohup rclone mount backblaze:${BUCKET_NAME} /mnt/backblaze \
         --allow-other \
+        --allow-non-empty \
         --vfs-cache-mode full \
         --vfs-read-chunk-size 32M \
         --buffer-size 64M \
         --dir-cache-time 5m \
         --log-level INFO \
+        --umask 0000 \
         > /tmp/rclone.log 2>&1 &
     
     RCLONE_PID=$!

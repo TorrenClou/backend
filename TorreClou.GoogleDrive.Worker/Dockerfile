@@ -40,7 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create mount point for Backblaze B2
-RUN mkdir -p /mnt/backblaze
+# Mount point must be owned by root for FUSE mounts
+RUN mkdir -p /mnt/backblaze && chmod 755 /mnt/backblaze
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -55,8 +56,8 @@ RUN chmod +x /entrypoint.sh
 # Set environment variables
 ENV ASPNETCORE_ENVIRONMENT=Production
 
-# Change ownership to non-root user
-RUN chown -R appuser:appuser /app /mnt/backblaze
+# Change ownership to non-root user (but keep /mnt/backblaze as root for mounting)
+RUN chown -R appuser:appuser /app
 
 # Note: FUSE mounts require special Docker privileges
 # Container must be run with: --cap-add SYS_ADMIN --device /dev/fuse
