@@ -22,6 +22,6 @@ namespace TorreClou.Core.DTOs.Jobs
         
         // Computed properties
         public double ProgressPercentage => TotalBytes > 0 ? (BytesDownloaded / (double)TotalBytes) * 100 : 0;
-        public bool IsActive => Status == "PROCESSING" || Status == "UPLOADING" || Status == "QUEUED";
+        public bool IsActive => Status == "PROCESSING" || Status == "DOWNLOADING" || Status == "UPLOADING" || Status == "QUEUED" || Status == "PENDING_UPLOAD" || Status == "RETRYING";
     }
 }

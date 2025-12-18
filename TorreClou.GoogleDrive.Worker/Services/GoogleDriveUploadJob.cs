@@ -125,10 +125,11 @@ namespace TorreClou.GoogleDrive.Worker.Services
             var accessToken = tokenResult.Value;
 
             // 7. Get files to upload (excluding .dht, .fresume, .torrent files)
-            var filesToUpload = GetFilesToUpload(job.DownloadPath);
+            // Wait for files to appear (for FUSE mount sync delays)
+            var filesToUpload = await WaitForFilesAsync(job.DownloadPath, cancellationToken);
             if (filesToUpload.Length == 0)
             {
-                await MarkJobFailedAsync(job, "No files found in download path.");
+                await MarkJobFailedAsync(job, $"No files found in download path {job.DownloadPath} after waiting. Directory exists: {Directory.Exists(job.DownloadPath)}");
                 return;
             }
 
@@ -197,17 +198,75 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 LogPrefix, job.Id, uploadResult.TotalFiles);
         }
 
+        /// <summary>
+        /// Waits for files to appear in the download path, retrying up to 10 times with 2-second delays.
+        /// This handles FUSE mount sync delays where files might not be immediately visible.
+        /// </summary>
+        private async Task<FileInfo[]> WaitForFilesAsync(string downloadPath, CancellationToken cancellationToken)
+        {
+            const int maxRetries = 10;
+            const int delaySeconds = 2;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    break;
+
+                var files = GetFilesToUpload(downloadPath);
+                
+                if (files.Length > 0)
+                {
+                    if (attempt > 1)
+                    {
+                        Logger.LogInformation("{LogPrefix} Files found after {Attempt} attempts | Count: {Count}", 
+                            LogPrefix, attempt, files.Length);
+                    }
+                    return files;
+                }
+
+                if (attempt < maxRetries)
+                {
+                    Logger.LogDebug("{LogPrefix} No files found, waiting {Delay}s before retry {Attempt}/{MaxRetries} | Path: {Path}", 
+                        LogPrefix, delaySeconds, attempt, maxRetries, downloadPath);
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
+                }
+            }
+
+            // Final attempt - return empty array if still no files
+            return GetFilesToUpload(downloadPath);
+        }
+
         private FileInfo[] GetFilesToUpload(string downloadPath)
         {
-            var directory = new DirectoryInfo(downloadPath);
+            try
+            {
+                var directory = new DirectoryInfo(downloadPath);
 
-            // Get all files excluding MonoTorrent metadata files and .dht files
-            return [.. directory.GetFiles("*", SearchOption.AllDirectories)
-                .Where(f => !f.Name.EndsWith(".fresume", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.EndsWith(".dht", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.Equals("dht_nodes.cache", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase))];
+                if (!directory.Exists)
+                {
+                    Logger.LogWarning("{LogPrefix} Download directory does not exist | Path: {Path}", LogPrefix, downloadPath);
+                    return [];
+                }
+
+                // Get all files excluding MonoTorrent metadata files and .dht files
+                var files = directory.GetFiles("*", SearchOption.AllDirectories)
+                    .Where(f => !f.Name.EndsWith(".fresume", StringComparison.OrdinalIgnoreCase) &&
+                               !f.Name.EndsWith(".dht", StringComparison.OrdinalIgnoreCase) &&
+                               !f.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) &&
+                               !f.Name.Equals("dht_nodes.cache", StringComparison.OrdinalIgnoreCase) &&
+                               !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+
+                Logger.LogDebug("{LogPrefix} Found {Count} files in directory | Path: {Path}", 
+                    LogPrefix, files.Length, downloadPath);
+
+                return files;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "{LogPrefix} Error getting files from directory | Path: {Path}", LogPrefix, downloadPath);
+                return [];
+            }
         }
 
         /// <summary>
