@@ -87,7 +87,7 @@ namespace TorreClou.Infrastructure.Services
 
             // Find jobs stuck in PROCESSING or UPLOADING with stale heartbeat
             var stuckJobsSpec = new BaseSpecification<TJob>(j =>
-                (j.Status == JobStatus.PROCESSING || j.Status == JobStatus.UPLOADING) &&
+                (j.Status == JobStatus.DOWNLOADING || j.Status == JobStatus.UPLOADING) &&
                 (
                     (j.LastHeartbeat != null && j.LastHeartbeat < staleTime) ||
                     (j.LastHeartbeat == null && j.StartedAt != null && j.StartedAt < staleTime)
@@ -166,7 +166,7 @@ namespace TorreClou.Infrastructure.Services
                 }
 
                 // If Hangfire shows succeeded but DB shows processing - need to sync
-                if (currentState == "Succeeded" && job.Status == JobStatus.PROCESSING)
+                if (currentState == "Succeeded" && job.Status == JobStatus.DOWNLOADING)
                 {
                     _logger.LogWarning("[HEALTH] Hangfire succeeded but DB shows processing | JobId: {JobId}", job.Id);
                     return true;

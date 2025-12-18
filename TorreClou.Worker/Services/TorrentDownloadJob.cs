@@ -25,7 +25,9 @@ namespace TorreClou.Worker.Services
         ILogger<TorrentDownloadJob> logger,
         IConnectionMultiplexer redis,
         ITransferSpeedMetrics speedMetrics,
-        IOptions<BackblazeSettings> backblazeSettings) : BaseJob<TorrentDownloadJob>(unitOfWork, logger)
+        IOptions<BackblazeSettings> backblazeSettings,
+        IJobLeaseService leaseService,
+        IOptions<JobLeaseSettings> leaseSettings) : BaseJob<TorrentDownloadJob>(unitOfWork, logger, leaseService, leaseSettings)
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
@@ -81,7 +83,7 @@ namespace TorreClou.Worker.Services
                 var downloadPath = InitializeDownloadPath(job);
 
                 // 2. Update job status to PROCESSING
-                job.Status = JobStatus.PROCESSING;
+                job.Status = JobStatus.DOWNLOADING;
                 job.StartedAt ??= DateTime.UtcNow;
                 job.LastHeartbeat = DateTime.UtcNow;
                 job.DownloadPath = downloadPath;

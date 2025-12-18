@@ -62,13 +62,8 @@ namespace TorreClou.Worker
                     return false;
                 }
 
-                // Check if job is already being processed or completed
-                if (job.Status != JobStatus.QUEUED)
-                {
-                    Logger.LogInformation("[WORKER] Job already in progress or completed | JobId: {JobId} | Status: {Status}", 
-                        jobId, job.Status);
-                    return true;
-                }
+                // Note: Lease acquisition is handled by BaseJob.ExecuteAsync in Hangfire
+                // We just enqueue the job here - Hangfire will handle duplicate prevention via leases
 
                 Logger.LogInformation("[WORKER] Enqueuing torrent download job to Hangfire | JobId: {JobId}", jobId);
 

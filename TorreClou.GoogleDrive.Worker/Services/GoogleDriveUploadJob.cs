@@ -21,7 +21,9 @@ namespace TorreClou.GoogleDrive.Worker.Services
         IGoogleDriveJob googleDriveService,
         IUploadProgressContext progressContext,
         ITransferSpeedMetrics speedMetrics,
-        IOptions<BackblazeSettings> backblazeSettings) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger)
+        IOptions<BackblazeSettings> backblazeSettings,
+        IJobLeaseService leaseService,
+        IOptions<JobLeaseSettings> leaseSettings) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger, leaseService, leaseSettings)
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
@@ -42,15 +44,9 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
         protected override async Task ExecuteCoreAsync(UserJob job, CancellationToken cancellationToken)
         {
-            // 1. Idempotency check - if job is already completed, skip
-            if (job.Status == JobStatus.COMPLETED)
-            {
-                Logger.LogInformation("{LogPrefix} Job already completed, skipping execution | JobId: {JobId}", 
-                    LogPrefix, job.Id);
-                return;
-            }
-
-            // 2. Handle job status transitions
+            // Note: Lease acquisition and status checks are handled by BaseJob.ExecuteAsync
+            
+            // Handle job status transitions for business logic
             if (job.Status == JobStatus.PENDING_UPLOAD)
             {
                 // Job just completed download - transition to UPLOADING
@@ -58,7 +54,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     LogPrefix, job.Id);
                 job.Status = JobStatus.UPLOADING;
                 job.CurrentState = "Starting upload...";
-                job.LastHeartbeat = DateTime.UtcNow; // Reset heartbeat for new execution
+                job.LastHeartbeat = DateTime.UtcNow;
                 await UnitOfWork.Complete();
             }
             else if (job.Status == JobStatus.RETRYING)
@@ -68,7 +64,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     LogPrefix, job.Id, job.NextRetryAt, job.ErrorMessage);
                 job.Status = JobStatus.UPLOADING;
                 job.CurrentState = "Retrying upload...";
-                job.LastHeartbeat = DateTime.UtcNow; // Reset heartbeat for retry attempt
+                job.LastHeartbeat = DateTime.UtcNow;
                 await UnitOfWork.Complete();
             }
             else if (job.Status != JobStatus.UPLOADING)
