@@ -32,8 +32,8 @@ RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
-# Create mount point for block storage
-RUN mkdir -p /mnt/torrents
+# Create mount points for block storage
+RUN mkdir -p /mnt/torrents /mnt/backblaze
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
