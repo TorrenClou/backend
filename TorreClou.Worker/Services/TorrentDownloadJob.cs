@@ -80,8 +80,14 @@ namespace TorreClou.Worker.Services
                 // 1. Initialize download path (use existing or create new)
                 var downloadPath = InitializeDownloadPath(job);
 
-                // 2. Update job status to PROCESSING
-                job.Status = JobStatus.DOWNLOADING;
+                // Check if job is in SYNCING state - handle separately before updating status
+                var wasSyncing = job.Status == JobStatus.SYNCING || job.Status == JobStatus.SYNC_RETRY;
+
+                // 2. Update job status to PROCESSING (unless we're resuming from SYNCING)
+                if (!wasSyncing)
+                {
+                    job.Status = JobStatus.DOWNLOADING;
+                }
                 job.StartedAt ??= DateTime.UtcNow;
                 job.LastHeartbeat = DateTime.UtcNow;
                 job.DownloadPath = downloadPath;
@@ -104,10 +110,47 @@ namespace TorreClou.Worker.Services
                 _engine = CreateEngine(downloadPath);
                 manager = await _engine.AddAsync(torrent, downloadPath);
                 
+                // Wait for manager to fully initialize from FastResume
+                await Task.Delay(500, cancellationToken);
+                
+                // Read actual downloaded bytes from manager (from FastResume) and update database
+                var actualDownloaded = manager.Monitor.DataBytesReceived;
+                if (actualDownloaded > 0 && actualDownloaded != job.BytesDownloaded)
+                {
+                    Logger.LogInformation("{LogPrefix} Resuming with actual progress | JobId: {JobId} | DB: {DbBytes} | Actual: {ActualBytes}", 
+                        LogPrefix, job.Id, job.BytesDownloaded, actualDownloaded);
+                    job.BytesDownloaded = actualDownloaded;
+                    await UnitOfWork.Complete();
+                }
+
+                // Check if job was in SYNCING state - handle separately
+                if (wasSyncing)
+                {
+                    // Job was interrupted during sync phase, but torrent is loaded
+                    Logger.LogInformation("{LogPrefix} Resuming from SYNCING state | JobId: {JobId}", LogPrefix, job.Id);
+                    
+                    // Check if torrent is already complete
+                    if (manager.Progress >= 100.0 || manager.State == TorrentState.Seeding)
+                    {
+                        // Download complete, resume sync
+                        Logger.LogInformation("{LogPrefix} Torrent already complete, resuming sync | JobId: {JobId}", LogPrefix, job.Id);
+                        await OnDownloadCompleteAsync(job, _engine);
+                        return;
+                    }
+                    else
+                    {
+                        // Download not complete, reset to downloading and continue with normal flow
+                        Logger.LogWarning("{LogPrefix} Torrent not complete in SYNCING state, resetting to DOWNLOADING | JobId: {JobId} | Progress: {Progress}%", 
+                            LogPrefix, job.Id, manager.Progress);
+                        job.Status = JobStatus.DOWNLOADING;
+                        await UnitOfWork.Complete();
+                        // Continue with normal download flow below
+                    }
+                }
 
                 Logger.LogInformation(
-                    "{LogPrefix} Torrent loaded | JobId: {JobId} | Name: {Name} | Size: {SizeMB:F2} MB | Path: {Path} | MaxConnections: {MaxConn}",
-                    LogPrefix, job.Id, torrent.Name, torrent.Size / (1024.0 * 1024.0), downloadPath, manager.Settings.MaximumConnections);
+                    "{LogPrefix} Torrent loaded | JobId: {JobId} | Name: {Name} | Size: {SizeMB:F2} MB | Path: {Path} | MaxConnections: {MaxConn} | ResumedBytes: {ResumedBytes}",
+                    LogPrefix, job.Id, torrent.Name, torrent.Size / (1024.0 * 1024.0), downloadPath, manager.Settings.MaximumConnections, actualDownloaded);
 
                 // 6. Start downloading
                 await manager.StartAsync();
@@ -489,14 +532,45 @@ namespace TorreClou.Worker.Services
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // Wait for sync to complete (with timeout)
+                // Wait for sync to complete (with timeout) and update heartbeat periodically
                 var timeout = TimeSpan.FromMinutes(60); // Increased timeout for large files
-                if (!process.WaitForExit((int)timeout.TotalMilliseconds))
+                var heartbeatInterval = TimeSpan.FromSeconds(30); // Update heartbeat every 30 seconds
+                var startTime = DateTime.UtcNow;
+                var lastHeartbeat = DateTime.UtcNow;
+
+                while (!process.HasExited)
                 {
-                    Logger.LogError("{LogPrefix} Backblaze sync timed out after {Timeout} minutes | JobId: {JobId}", 
-                        LogPrefix, timeout.TotalMinutes, job.Id);
-                    try { process.Kill(); } catch { /* ignore */ }
-                    throw new TimeoutException($"Backblaze sync timed out after {timeout.TotalMinutes} minutes");
+                    var elapsed = DateTime.UtcNow - startTime;
+                    if (elapsed >= timeout)
+                    {
+                        Logger.LogError("{LogPrefix} Backblaze sync timed out after {Timeout} minutes | JobId: {JobId}", 
+                            LogPrefix, timeout.TotalMinutes, job.Id);
+                        try { process.Kill(); } catch { /* ignore */ }
+                        throw new TimeoutException($"Backblaze sync timed out after {timeout.TotalMinutes} minutes");
+                    }
+
+                    // Update heartbeat periodically during sync to prevent health monitor from marking as orphaned
+                    if (DateTime.UtcNow - lastHeartbeat >= heartbeatInterval)
+                    {
+                        try
+                        {
+                            job.LastHeartbeat = DateTime.UtcNow;
+                            job.CurrentState = $"Syncing files to Backblaze B2... ({elapsed.TotalMinutes:F1} min elapsed)";
+                            await UnitOfWork.Complete();
+                            lastHeartbeat = DateTime.UtcNow;
+                            Logger.LogDebug("{LogPrefix} Heartbeat updated during sync | JobId: {JobId} | Elapsed: {Elapsed:F1} min", 
+                                LogPrefix, job.Id, elapsed.TotalMinutes);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogWarning(ex, "{LogPrefix} Failed to update heartbeat during sync | JobId: {JobId}", 
+                                LogPrefix, job.Id);
+                            // Continue sync even if heartbeat update fails
+                        }
+                    }
+
+                    // Wait a bit before checking again
+                    await Task.Delay(TimeSpan.FromSeconds(5), CancellationToken.None);
                 }
 
                 if (process.ExitCode == 0)
