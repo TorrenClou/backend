@@ -12,6 +12,7 @@ using TorreClou.Infrastructure.Services;
 using TorreClou.Infrastructure.Settings;
 using StackExchange.Redis;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace TorreClou.Worker.Services
 {
@@ -512,17 +513,71 @@ namespace TorreClou.Worker.Services
                 using var process = new Process { StartInfo = processInfo };
                 var outputBuilder = new System.Text.StringBuilder();
                 var errorBuilder = new System.Text.StringBuilder();
-
-                process.OutputDataReceived += (_, e) => 
+                
+                // Progress tracking - use volatile for thread-safe access
+                var lastProgressUpdate = DateTime.MinValue;
+                var lastProgressPercent = -1.0;
+                var progressUpdateInterval = TimeSpan.FromSeconds(10); // Update DB every 10 seconds if progress changed
+                var progressSemaphore = new SemaphoreSlim(1, 1); // Semaphore for async-safe progress updates
+                
+                process.OutputDataReceived += async (_, e) => 
                 { 
                     if (e.Data != null) 
                     {
                         outputBuilder.AppendLine(e.Data);
-                        // Log progress updates
-                        if (e.Data.Contains("%") || e.Data.Contains("Transferred"))
+                        
+                        // Parse rclone progress output
+                        // Format: "Transferred:   1.234 GiB / 5.678 GiB, 22%, 12.34 MiB/s, ETA 0s"
+                        var progressInfo = ParseRcloneProgress(e.Data);
+                        
+                        if (progressInfo != null)
                         {
-                            Logger.LogDebug("{LogPrefix} Sync progress | JobId: {JobId} | {Progress}", 
-                                LogPrefix, job.Id, e.Data.Trim());
+                            var now = DateTime.UtcNow;
+                            bool shouldUpdate = false;
+                            
+                            // Check if we should update (thread-safe)
+                            await progressSemaphore.WaitAsync();
+                            try
+                            {
+                                // Update if percentage changed significantly (1% or more) or enough time passed
+                                if (Math.Abs(progressInfo.Percent - lastProgressPercent) >= 1.0 || 
+                                    (now - lastProgressUpdate) >= progressUpdateInterval)
+                                {
+                                    shouldUpdate = true;
+                                    lastProgressPercent = progressInfo.Percent;
+                                    lastProgressUpdate = now;
+                                }
+                            }
+                            finally
+                            {
+                                progressSemaphore.Release();
+                            }
+                            
+                            if (shouldUpdate)
+                            {
+                                try
+                                {
+                                    job.CurrentState = $"Syncing to B2: {progressInfo.Percent:F1}% ({progressInfo.TransferredMB:F1}/{progressInfo.TotalMB:F1} MB) @ {progressInfo.SpeedMBps:F2} MB/s";
+                                    job.LastHeartbeat = DateTime.UtcNow;
+                                    await UnitOfWork.Complete();
+                                    
+                                    Logger.LogInformation(
+                                        "{LogPrefix} Sync progress | JobId: {JobId} | {Percent:F1}% | {TransferredMB:F1}/{TotalMB:F1} MB | Speed: {SpeedMBps:F2} MB/s | ETA: {ETA}",
+                                        LogPrefix, job.Id, progressInfo.Percent, progressInfo.TransferredMB, 
+                                        progressInfo.TotalMB, progressInfo.SpeedMBps, progressInfo.ETA);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.LogWarning(ex, "{LogPrefix} Failed to update sync progress | JobId: {JobId}", 
+                                        LogPrefix, job.Id);
+                                }
+                            }
+                            else
+                            {
+                                // Log debug for frequent updates
+                                Logger.LogDebug("{LogPrefix} Sync progress | JobId: {JobId} | {Percent:F1}% | {TransferredMB:F1}/{TotalMB:F1} MB", 
+                                    LogPrefix, job.Id, progressInfo.Percent, progressInfo.TransferredMB, progressInfo.TotalMB);
+                            }
                         }
                     }
                 };
@@ -549,17 +604,25 @@ namespace TorreClou.Worker.Services
                         throw new TimeoutException($"Backblaze sync timed out after {timeout.TotalMinutes} minutes");
                     }
 
-                    // Update heartbeat periodically during sync to prevent health monitor from marking as orphaned
+                    // Update heartbeat periodically during sync (fallback if no progress updates)
                     if (DateTime.UtcNow - lastHeartbeat >= heartbeatInterval)
                     {
                         try
                         {
-                            job.LastHeartbeat = DateTime.UtcNow;
-                            job.CurrentState = $"Syncing files to Backblaze B2... ({elapsed.TotalMinutes:F1} min elapsed)";
-                            await UnitOfWork.Complete();
-                            lastHeartbeat = DateTime.UtcNow;
-                            Logger.LogDebug("{LogPrefix} Heartbeat updated during sync | JobId: {JobId} | Elapsed: {Elapsed:F1} min", 
-                                LogPrefix, job.Id, elapsed.TotalMinutes);
+                            // Only update if we haven't gotten progress updates recently
+                            if (job.LastHeartbeat == null || (DateTime.UtcNow - job.LastHeartbeat.Value).TotalSeconds >= 30)
+                            {
+                                job.LastHeartbeat = DateTime.UtcNow;
+                                // Only update state if we haven't gotten progress updates (no % in state)
+                                if (string.IsNullOrEmpty(job.CurrentState) || !job.CurrentState.Contains("%"))
+                                {
+                                    job.CurrentState = $"Syncing files to Backblaze B2... ({elapsed.TotalMinutes:F1} min elapsed)";
+                                }
+                                await UnitOfWork.Complete();
+                                lastHeartbeat = DateTime.UtcNow;
+                                Logger.LogDebug("{LogPrefix} Heartbeat updated during sync | JobId: {JobId} | Elapsed: {Elapsed:F1} min", 
+                                    LogPrefix, job.Id, elapsed.TotalMinutes);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -633,6 +696,97 @@ namespace TorreClou.Worker.Services
             }
 
             await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Parses rclone progress output line.
+        /// Format: "Transferred:   1.234 GiB / 5.678 GiB, 22%, 12.34 MiB/s, ETA 0s"
+        /// </summary>
+        private RcloneProgressInfo? ParseRcloneProgress(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) || !line.Contains("Transferred:"))
+                return null;
+
+            try
+            {
+                // Pattern: "Transferred:   X.XXX GiB / Y.YYY GiB, Z%, speed, ETA"
+                // Extract percentage
+                var percentMatch = Regex.Match(line, @"(\d+(?:\.\d+)?)%");
+                if (!percentMatch.Success)
+                    return null;
+
+                var percent = double.Parse(percentMatch.Groups[1].Value);
+
+                // Extract transferred and total (could be in GiB, MiB, KiB, or bytes)
+                var transferredMatch = Regex.Match(line, @"Transferred:\s+([\d.]+)\s+(GiB|MiB|KiB|Bytes)", RegexOptions.IgnoreCase);
+                var totalMatch = Regex.Match(line, @"/\s+([\d.]+)\s+(GiB|MiB|KiB|Bytes)", RegexOptions.IgnoreCase);
+                
+                double transferredMB = 0;
+                double totalMB = 0;
+
+                if (transferredMatch.Success)
+                {
+                    var value = double.Parse(transferredMatch.Groups[1].Value);
+                    var unit = transferredMatch.Groups[2].Value;
+                    transferredMB = ConvertToMB(value, unit);
+                }
+
+                if (totalMatch.Success)
+                {
+                    var value = double.Parse(totalMatch.Groups[1].Value);
+                    var unit = totalMatch.Groups[2].Value;
+                    totalMB = ConvertToMB(value, unit);
+                }
+
+                // Extract speed
+                var speedMatch = Regex.Match(line, @"([\d.]+)\s+(GiB|MiB|KiB)/s", RegexOptions.IgnoreCase);
+                double speedMBps = 0;
+                if (speedMatch.Success)
+                {
+                    var value = double.Parse(speedMatch.Groups[1].Value);
+                    var unit = speedMatch.Groups[2].Value;
+                    speedMBps = ConvertToMB(value, unit);
+                }
+
+                // Extract ETA
+                var etaMatch = Regex.Match(line, @"ETA\s+([\dhm]+)", RegexOptions.IgnoreCase);
+                var eta = etaMatch.Success ? etaMatch.Groups[1].Value : "unknown";
+
+                return new RcloneProgressInfo
+                {
+                    Percent = percent,
+                    TransferredMB = transferredMB,
+                    TotalMB = totalMB,
+                    SpeedMBps = speedMBps,
+                    ETA = eta
+                };
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "{LogPrefix} Failed to parse rclone progress line: {Line}", LogPrefix, line);
+                return null;
+            }
+        }
+
+        private double ConvertToMB(double value, string unit)
+        {
+            return unit.ToUpperInvariant() switch
+            {
+                "GIB" => value * 1024,
+                "MIB" => value,
+                "KIB" => value / 1024,
+                "BYTES" => value / (1024 * 1024),
+                _ => value
+            };
+        }
+
+        private class RcloneProgressInfo
+        {
+            public double Percent { get; set; }
+            public double TransferredMB { get; set; }
+            public double TotalMB { get; set; }
+            public double SpeedMBps { get; set; }
+            public string ETA { get; set; } = string.Empty;
         }
     }
 }
