@@ -9,8 +9,11 @@ COPY TorreClou.Application/TorreClou.Application.csproj TorreClou.Application/
 COPY TorreClou.Infrastructure/TorreClou.Infrastructure.csproj TorreClou.Infrastructure/
 COPY TorreClou.Sync.Worker/TorreClou.Sync.Worker.csproj TorreClou.Sync.Worker/
 
-# Restore dependencies
-RUN dotnet restore TorreClou.sln
+# Restore dependencies for the Sync Worker project
+# This will automatically restore all project dependencies
+WORKDIR /src/TorreClou.Sync.Worker
+RUN dotnet restore TorreClou.Sync.Worker.csproj
+WORKDIR /src
 
 # Copy all source code
 COPY TorreClou.Core/ TorreClou.Core/
