@@ -16,11 +16,17 @@ EOF
     
     echo "[ENTRYPOINT] Mounting Backblaze B2 bucket: ${BACKBLAZE_BUCKET:-torrenclo}"
     
-    # Mount the bucket with cache mode off - files write directly to B2 without local caching
-    # This eliminates local disk usage entirely
+    # Mount the bucket with write caching (required for torrent random writes)
+    # Use aggressive cache limits to minimize disk usage:
+    # - Immediate write-back (0s) to upload to B2 as soon as possible
+    # - Small cache size limit (1G) to prevent unlimited growth
+    # - Short cache age (1h) to expire old entries quickly
     rclone mount backblaze:${BACKBLAZE_BUCKET:-torrenclo} /mnt/backblaze \
         --allow-other \
-        --vfs-cache-mode off \
+        --vfs-cache-mode writes \
+        --vfs-write-back 0s \
+        --vfs-cache-max-size 1G \
+        --vfs-cache-max-age 1h \
         --buffer-size 64M \
         --dir-cache-time 5m \
         --log-level INFO \
