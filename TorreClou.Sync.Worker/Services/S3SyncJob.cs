@@ -2,6 +2,7 @@ using System.Text.Json;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
+using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
 using TorreClou.Infrastructure.Workers;
 using TorreClou.Infrastructure.Settings;
@@ -247,7 +248,7 @@ namespace TorreClou.Sync.Worker.Services
                     uploadId = initResult.Value;
 
                     // Create new progress record
-                    var totalParts = (int)Math.Ceiling((double)file.Length / PartSize);
+                    var calculatedTotalParts = (int)Math.Ceiling((double)file.Length / PartSize);
                     progress = new S3SyncProgress
                     {
                         JobId = job.Id,
@@ -255,14 +256,14 @@ namespace TorreClou.Sync.Worker.Services
                         S3Key = s3Key,
                         UploadId = uploadId,
                         PartSize = PartSize,
-                        TotalParts = totalParts,
+                        TotalParts = calculatedTotalParts,
                         PartsCompleted = 0,
                         BytesUploaded = 0,
                         TotalBytes = file.Length,
                         Status = SyncProgressStatus.InProgress,
                         StartedAt = DateTime.UtcNow
                     };
-                    await UnitOfWork.Repository<S3SyncProgress>().AddAsync(progress);
+                    UnitOfWork.Repository<S3SyncProgress>().Add(progress);
                     await UnitOfWork.Complete();
                     existingParts = [];
                 }
@@ -327,7 +328,7 @@ namespace TorreClou.Sync.Worker.Services
                 // Mark progress as completed and delete record
                 progress.Status = SyncProgressStatus.Completed;
                 progress.CompletedAt = DateTime.UtcNow;
-                await UnitOfWork.Repository<S3SyncProgress>().DeleteAsync(progress);
+                UnitOfWork.Repository<S3SyncProgress>().Delete(progress);
                 await UnitOfWork.Complete();
 
                 Logger.LogInformation("{LogPrefix} File uploaded successfully | JobId: {JobId} | Key: {Key} | Parts: {Parts}",
