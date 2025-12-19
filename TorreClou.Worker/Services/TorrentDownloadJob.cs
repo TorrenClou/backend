@@ -13,6 +13,7 @@ using TorreClou.Infrastructure.Settings;
 using StackExchange.Redis;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Collections.Concurrent;
 
 namespace TorreClou.Worker.Services
 {
@@ -514,13 +515,13 @@ namespace TorreClou.Worker.Services
                 var outputBuilder = new System.Text.StringBuilder();
                 var errorBuilder = new System.Text.StringBuilder();
                 
-                // Progress tracking - use volatile for thread-safe access
+                // Progress tracking - queue updates from background thread, process on main thread
+                var progressQueue = new ConcurrentQueue<RcloneProgressInfo>();
                 var lastProgressUpdate = DateTime.MinValue;
                 var lastProgressPercent = -1.0;
                 var progressUpdateInterval = TimeSpan.FromSeconds(10); // Update DB every 10 seconds if progress changed
-                var progressSemaphore = new SemaphoreSlim(1, 1); // Semaphore for async-safe progress updates
                 
-                process.OutputDataReceived += async (_, e) => 
+                process.OutputDataReceived += (_, e) => 
                 { 
                     if (e.Data != null) 
                     {
@@ -532,52 +533,12 @@ namespace TorreClou.Worker.Services
                         
                         if (progressInfo != null)
                         {
-                            var now = DateTime.UtcNow;
-                            bool shouldUpdate = false;
+                            // Queue progress info for processing on main thread (thread-safe)
+                            progressQueue.Enqueue(progressInfo);
                             
-                            // Check if we should update (thread-safe)
-                            await progressSemaphore.WaitAsync();
-                            try
-                            {
-                                // Update if percentage changed significantly (1% or more) or enough time passed
-                                if (Math.Abs(progressInfo.Percent - lastProgressPercent) >= 1.0 || 
-                                    (now - lastProgressUpdate) >= progressUpdateInterval)
-                                {
-                                    shouldUpdate = true;
-                                    lastProgressPercent = progressInfo.Percent;
-                                    lastProgressUpdate = now;
-                                }
-                            }
-                            finally
-                            {
-                                progressSemaphore.Release();
-                            }
-                            
-                            if (shouldUpdate)
-                            {
-                                try
-                                {
-                                    job.CurrentState = $"Syncing to B2: {progressInfo.Percent:F1}% ({progressInfo.TransferredMB:F1}/{progressInfo.TotalMB:F1} MB) @ {progressInfo.SpeedMBps:F2} MB/s";
-                                    job.LastHeartbeat = DateTime.UtcNow;
-                                    await UnitOfWork.Complete();
-                                    
-                                    Logger.LogInformation(
-                                        "{LogPrefix} Sync progress | JobId: {JobId} | {Percent:F1}% | {TransferredMB:F1}/{TotalMB:F1} MB | Speed: {SpeedMBps:F2} MB/s | ETA: {ETA}",
-                                        LogPrefix, job.Id, progressInfo.Percent, progressInfo.TransferredMB, 
-                                        progressInfo.TotalMB, progressInfo.SpeedMBps, progressInfo.ETA);
-                                }
-                                catch (Exception ex)
-                                {
-                                    Logger.LogWarning(ex, "{LogPrefix} Failed to update sync progress | JobId: {JobId}", 
-                                        LogPrefix, job.Id);
-                                }
-                            }
-                            else
-                            {
-                                // Log debug for frequent updates
-                                Logger.LogDebug("{LogPrefix} Sync progress | JobId: {JobId} | {Percent:F1}% | {TransferredMB:F1}/{TotalMB:F1} MB", 
-                                    LogPrefix, job.Id, progressInfo.Percent, progressInfo.TransferredMB, progressInfo.TotalMB);
-                            }
+                            // Log debug for all progress updates
+                            Logger.LogDebug("{LogPrefix} Sync progress | JobId: {JobId} | {Percent:F1}% | {TransferredMB:F1}/{TotalMB:F1} MB", 
+                                LogPrefix, job.Id, progressInfo.Percent, progressInfo.TransferredMB, progressInfo.TotalMB);
                         }
                     }
                 };
@@ -602,6 +563,42 @@ namespace TorreClou.Worker.Services
                             LogPrefix, timeout.TotalMinutes, job.Id);
                         try { process.Kill(); } catch { /* ignore */ }
                         throw new TimeoutException($"Backblaze sync timed out after {timeout.TotalMinutes} minutes");
+                    }
+
+                    // Process queued progress updates (thread-safe, runs on main thread)
+                    while (progressQueue.TryDequeue(out var progressInfo))
+                    {
+                        var now = DateTime.UtcNow;
+                        bool shouldUpdate = false;
+                        
+                        // Update if percentage changed significantly (1% or more) or enough time passed
+                        if (Math.Abs(progressInfo.Percent - lastProgressPercent) >= 1.0 || 
+                            (now - lastProgressUpdate) >= progressUpdateInterval)
+                        {
+                            shouldUpdate = true;
+                            lastProgressPercent = progressInfo.Percent;
+                            lastProgressUpdate = now;
+                        }
+                        
+                        if (shouldUpdate)
+                        {
+                            try
+                            {
+                                job.CurrentState = $"Syncing to B2: {progressInfo.Percent:F1}% ({progressInfo.TransferredMB:F1}/{progressInfo.TotalMB:F1} MB) @ {progressInfo.SpeedMBps:F2} MB/s";
+                                job.LastHeartbeat = DateTime.UtcNow;
+                                await UnitOfWork.Complete();
+                                
+                                Logger.LogInformation(
+                                    "{LogPrefix} Sync progress | JobId: {JobId} | {Percent:F1}% | {TransferredMB:F1}/{TotalMB:F1} MB | Speed: {SpeedMBps:F2} MB/s | ETA: {ETA}",
+                                    LogPrefix, job.Id, progressInfo.Percent, progressInfo.TransferredMB, 
+                                    progressInfo.TotalMB, progressInfo.SpeedMBps, progressInfo.ETA);
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.LogWarning(ex, "{LogPrefix} Failed to update sync progress | JobId: {JobId}", 
+                                    LogPrefix, job.Id);
+                            }
+                        }
                     }
 
                     // Update heartbeat periodically during sync (fallback if no progress updates)
