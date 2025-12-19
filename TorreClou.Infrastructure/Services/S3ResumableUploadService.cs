@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using TorreClou.Infrastructure.Settings;
+using PartETag = TorreClou.Core.Interfaces.PartETag;
 
 namespace TorreClou.Infrastructure.Services
 {
@@ -66,7 +67,7 @@ namespace TorreClou.Infrastructure.Services
             }
         }
 
-        public async Task<Result<PartETag>> UploadPartAsync(string bucketName, string s3Key, string uploadId, int partNumber, Stream partData, CancellationToken cancellationToken = default)
+        public async Task<Result<Core.Interfaces.PartETag>> UploadPartAsync(string bucketName, string s3Key, string uploadId, int partNumber, Stream partData, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -108,7 +109,7 @@ namespace TorreClou.Infrastructure.Services
         {
             try
             {
-                var partETags = parts.Select(p => new PartETag
+                var partETags = parts.Select(p => new Amazon.S3.Model.PartETag
                 {
                     PartNumber = p.PartNumber,
                     ETag = p.ETag
@@ -191,7 +192,7 @@ namespace TorreClou.Infrastructure.Services
 
                 var parts = response.Parts.Select(p => new PartETag
                 {
-                    PartNumber = p.PartNumber,
+                    PartNumber = p.PartNumber ?? 0,
                     ETag = p.ETag
                 }).ToList();
 
