@@ -58,7 +58,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 job.LastHeartbeat = DateTime.UtcNow;
                 await UnitOfWork.Complete();
             }
-            else if (job.Status == JobStatus.RETRYING)
+            else if (job.Status == JobStatus.RETRYING || job.Status == JobStatus.UPLOAD_RETRY)
             {
                 // Job is retrying - transition back to UPLOADING for this attempt
                 Logger.LogInformation("{LogPrefix} Retrying job | JobId: {JobId} | NextRetryAt: {NextRetry} | Error: {Error}", 
@@ -99,11 +99,23 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 return;
             }
 
-            // Check if path is under Backblaze mount and validate mount exists
+            // Construct full path if using relative path format (torrents/{jobId})
+            // If path doesn't start with mount path, assume it's relative and combine with mount path
+            string fullDownloadPath = job.DownloadPath;
             if (_backblazeSettings.UseFuseMount && 
-                !string.IsNullOrEmpty(_backblazeSettings.MountPath) &&
-                job.DownloadPath.StartsWith(_backblazeSettings.MountPath, StringComparison.OrdinalIgnoreCase))
+                !string.IsNullOrEmpty(_backblazeSettings.MountPath))
             {
+                // If path is already absolute and starts with mount path, use as-is
+                if (job.DownloadPath.StartsWith(_backblazeSettings.MountPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    fullDownloadPath = job.DownloadPath;
+                }
+                else
+                {
+                    // Path is relative (e.g., "torrents/{jobId}"), combine with mount path
+                    fullDownloadPath = Path.Combine(_backblazeSettings.MountPath, job.DownloadPath);
+                }
+
                 // Validate mount point exists
                 if (!Directory.Exists(_backblazeSettings.MountPath))
                 {
@@ -111,9 +123,12 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     return;
                 }
 
-                Logger.LogInformation("{LogPrefix} Using Backblaze mount | JobId: {JobId} | MountPath: {MountPath} | DownloadPath: {DownloadPath}",
-                    LogPrefix, job.Id, _backblazeSettings.MountPath, job.DownloadPath);
+                Logger.LogInformation("{LogPrefix} Using Backblaze mount | JobId: {JobId} | MountPath: {MountPath} | DownloadPath: {DownloadPath} | FullPath: {FullPath}",
+                    LogPrefix, job.Id, _backblazeSettings.MountPath, job.DownloadPath, fullDownloadPath);
             }
+
+            // Update job download path to full path for rest of processing
+            job.DownloadPath = fullDownloadPath;
 
             // Validate download path exists
             if (!Directory.Exists(job.DownloadPath))
@@ -384,7 +399,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                                !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase))
                     .ToArray();
 
-                Logger.LogDebug("{LogPrefix} Found {Count} files in directory (out of {Total} total files) | Path: {Path}", 
+                Logger.LogInformation("{LogPrefix} Found {Count} files in directory (out of {Total} total files) | Path: {Path}", 
                     LogPrefix, files.Length, allFiles.Length, downloadPath);
 
                 return files;

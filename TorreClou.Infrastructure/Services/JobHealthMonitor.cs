@@ -16,7 +16,7 @@ namespace TorreClou.Infrastructure.Services
     /// Generic background service that monitors job health and recovers orphaned jobs.
     /// Works with any entity implementing IRecoverableJob that extends BaseEntity.
     /// Runs periodically to detect jobs that:
-    /// - Are stuck in PROCESSING/UPLOADING with stale heartbeat
+    /// - Are stuck in active states (DOWNLOADING, SYNCING, UPLOADING, or retry states) with stale heartbeat
     /// - Have Hangfire jobs that failed/succeeded but DB wasn't updated
     /// Uses strategy pattern for job-type-specific recovery logic.
     /// </summary>
@@ -85,9 +85,14 @@ namespace TorreClou.Infrastructure.Services
 
             var staleTime = DateTime.UtcNow - _options.StaleJobThreshold;
 
-            // Find jobs stuck in DOWNLOADING/PROCESSING or UPLOADING with stale heartbeat
+            // Find jobs stuck in active states (DOWNLOADING, SYNCING, UPLOADING, or retry states) with stale heartbeat
             var stuckJobsSpec = new BaseSpecification<TJob>(j =>
-                (j.Status == JobStatus.DOWNLOADING || j.Status == JobStatus.PROCESSING || j.Status == JobStatus.UPLOADING) &&
+                (j.Status == JobStatus.DOWNLOADING || 
+                 j.Status == JobStatus.SYNCING || 
+                 j.Status == JobStatus.UPLOADING ||
+                 j.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                 j.Status == JobStatus.UPLOAD_RETRY ||
+                 j.Status == JobStatus.SYNC_RETRY) &&
                 (
                     (j.LastHeartbeat != null && j.LastHeartbeat < staleTime) ||
                     (j.LastHeartbeat == null && j.StartedAt != null && j.StartedAt < staleTime)
@@ -149,7 +154,7 @@ namespace TorreClou.Infrastructure.Services
 
                 var currentState = hangfireJob.History.FirstOrDefault()?.StateName;
 
-                // If job is still "Processing" in Hangfire but our DB heartbeat is stale,
+                // If job is still "Processing" in Hangfire (Hangfire's state name) but our DB heartbeat is stale,
                 // Hangfire hasn't detected the dead worker yet - force recovery
                 if (currentState == "Processing")
                 {
@@ -165,10 +170,10 @@ namespace TorreClou.Infrastructure.Services
                     return false;
                 }
 
-                // If Hangfire shows succeeded but DB shows processing - need to sync
+                // If Hangfire shows succeeded but DB shows job is still in active state - need to sync
                 if (currentState == "Succeeded" && job.Status == JobStatus.DOWNLOADING)
                 {
-                    _logger.LogWarning("[HEALTH] Hangfire succeeded but DB shows processing | JobId: {JobId}", job.Id);
+                    _logger.LogWarning("[HEALTH] Hangfire succeeded but DB shows job still active | JobId: {JobId} | Status: {Status}", job.Id, job.Status);
                     return true;
                 }
 
