@@ -39,8 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf rclone-* \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create mount point for Backblaze B2
-RUN mkdir -p /mnt/backblaze
+# Create mount points for Backblaze B2 and block storage
+RUN mkdir -p /mnt/backblaze /mnt/torrents
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -56,7 +56,7 @@ RUN chmod +x /entrypoint.sh
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser /app /mnt/backblaze
+RUN chown -R appuser:appuser /app /mnt/backblaze /mnt/torrents
 
 # Note: Cannot use non-root user with FUSE mount by default
 # The entrypoint will handle permissions appropriately

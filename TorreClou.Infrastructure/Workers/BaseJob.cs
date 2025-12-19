@@ -117,13 +117,15 @@ namespace TorreClou.Infrastructure.Workers
                 {
                     // Check if retries are available before marking as failed
                     bool hasRetries = HasRetriesAvailable(job);
-                    var finalStatus = hasRetries ? JobStatus.RETRYING : JobStatus.FAILED;
-                    
-                    span.WithTag("job.status.final", finalStatus.ToString())
-                        .WithTag("job.has_retries", hasRetries.ToString());
+                    // MarkJobFailedAsync will determine the correct status, so we don't need to set it here
+                    // Just log for tracing
+                    span.WithTag("job.has_retries", hasRetries.ToString());
                     
                     await OnJobErrorAsync(job, ex);
                     await MarkJobFailedAsync(job, ex.Message, hasRetries);
+                    
+                    // Update span with final status after MarkJobFailedAsync sets it
+                    span.WithTag("job.status.final", job.Status.ToString());
                 }
 
                 throw; // Let Hangfire retry if attempts remain
@@ -220,7 +222,7 @@ namespace TorreClou.Infrastructure.Workers
                     // Determine retry state based on current job phase
                     JobStatus retryStatus = job.Status switch
                     {
-                        JobStatus.DOWNLOADING or JobStatus.TORRENT_FAILED or JobStatus.TORRENT_DOWNLOAD_RETRY => JobStatus.TORRENT_DOWNLOAD_RETRY,
+                        JobStatus.QUEUED or JobStatus.DOWNLOADING or JobStatus.TORRENT_FAILED or JobStatus.TORRENT_DOWNLOAD_RETRY => JobStatus.TORRENT_DOWNLOAD_RETRY,
                         JobStatus.SYNCING or JobStatus.SYNC_RETRY => JobStatus.SYNC_RETRY,
                         JobStatus.UPLOADING or JobStatus.UPLOAD_RETRY => JobStatus.UPLOAD_RETRY,
                         _ => JobStatus.RETRYING // Fallback to generic retry state
