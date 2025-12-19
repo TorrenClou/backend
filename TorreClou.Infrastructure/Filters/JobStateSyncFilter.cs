@@ -37,10 +37,23 @@ namespace TorreClou.Infrastructure.Filters
                 var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 var job = await unitOfWork.Repository<UserJob>().GetByIdAsync(jobId);
 
-                if (job != null && job.Status != JobStatus.FAILED)
+                if (job != null && 
+                    job.Status != JobStatus.FAILED && 
+                    job.Status != JobStatus.TORRENT_FAILED &&
+                    job.Status != JobStatus.UPLOAD_FAILED &&
+                    job.Status != JobStatus.GOOGLE_DRIVE_FAILED)
                 {
-                    logger.LogError("[Filter] Marking job {JobId} as FAILED due to Hangfire failure (all retries exhausted).", jobId);
-                    job.Status = JobStatus.FAILED;
+                    // Determine appropriate failure state based on current status
+                    JobStatus failureStatus = job.Status switch
+                    {
+                        JobStatus.QUEUED or JobStatus.DOWNLOADING or JobStatus.TORRENT_DOWNLOAD_RETRY or JobStatus.TORRENT_FAILED => JobStatus.TORRENT_FAILED,
+                        JobStatus.SYNCING or JobStatus.SYNC_RETRY => JobStatus.UPLOAD_FAILED,
+                        JobStatus.UPLOADING or JobStatus.UPLOAD_RETRY => JobStatus.UPLOAD_FAILED,
+                        _ => JobStatus.FAILED // Generic failure for unknown states
+                    };
+                    
+                    logger.LogError("[Filter] Marking job {JobId} as {FailureStatus} due to Hangfire failure (all retries exhausted).", jobId, failureStatus);
+                    job.Status = failureStatus;
                     job.ErrorMessage = $"System Failure: {error}";
                     job.CompletedAt = DateTime.UtcNow;
                     job.NextRetryAt = null; // Clear retry time
