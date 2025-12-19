@@ -40,13 +40,20 @@ namespace TorreClou.Application.Services
                      (j.Status == JobStatus.RETRYING || 
                       j.Status == JobStatus.QUEUED || 
                       j.Status == JobStatus.DOWNLOADING || 
+                      j.Status == JobStatus.SYNCING ||
                       j.Status == JobStatus.PENDING_UPLOAD ||
-                      j.Status == JobStatus.UPLOADING));
+                      j.Status == JobStatus.UPLOADING ||
+                      j.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                      j.Status == JobStatus.UPLOAD_RETRY ||
+                      j.Status == JobStatus.SYNC_RETRY));
             var existingJob = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(existingJobSpec);
             
             if (existingJob != null)
             {
-                if (existingJob.Status == JobStatus.RETRYING)
+                if (existingJob.Status == JobStatus.RETRYING || 
+                    existingJob.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                    existingJob.Status == JobStatus.UPLOAD_RETRY ||
+                    existingJob.Status == JobStatus.SYNC_RETRY)
                 {
                     var nextRetryMessage = existingJob.NextRetryAt.HasValue 
                         ? $" Next retry scheduled for: {existingJob.NextRetryAt.Value:yyyy-MM-dd HH:mm:ss UTC}"
@@ -122,7 +129,7 @@ namespace TorreClou.Application.Services
                 Id = job.Id,
                 StorageProfileId = job.StorageProfileId,
                 StorageProfileName = job.StorageProfile?.ProfileName,
-                Status = job.Status.ToString(),
+                Status = job.Status,
                 Type = job.Type.ToString(),
                 RequestFileId = job.RequestFileId,
                 RequestFileName = job.RequestFile?.FileName,
@@ -165,7 +172,7 @@ namespace TorreClou.Application.Services
                 Id = job.Id,
                 StorageProfileId = job.StorageProfileId,
                 StorageProfileName = job.StorageProfile?.ProfileName,
-                Status = job.Status.ToString(),
+                Status = job.Status,
                 Type = job.Type.ToString(),
                 RequestFileId = job.RequestFileId,
                 RequestFileName = job.RequestFile?.FileName,
@@ -193,16 +200,26 @@ namespace TorreClou.Application.Services
                 ActiveJobs = allJobs.Count(job => 
                     job.Status == JobStatus.QUEUED || 
                     job.Status == JobStatus.DOWNLOADING || 
+                    job.Status == JobStatus.SYNCING ||
                     job.Status == JobStatus.PENDING_UPLOAD ||
                     job.Status == JobStatus.UPLOADING ||
-                    job.Status == JobStatus.RETRYING),
+                    job.Status == JobStatus.RETRYING ||
+                    job.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                    job.Status == JobStatus.UPLOAD_RETRY ||
+                    job.Status == JobStatus.SYNC_RETRY),
                 CompletedJobs = allJobs.Count(job => job.Status == JobStatus.COMPLETED),
-                FailedJobs = allJobs.Count(job => job.Status == JobStatus.FAILED),
+                FailedJobs = allJobs.Count(job => job.Status == JobStatus.FAILED || 
+                                                  job.Status == JobStatus.TORRENT_FAILED ||
+                                                  job.Status == JobStatus.UPLOAD_FAILED ||
+                                                  job.Status == JobStatus.GOOGLE_DRIVE_FAILED),
                 QueuedJobs = allJobs.Count(job => job.Status == JobStatus.QUEUED),
-                ProcessingJobs = allJobs.Count(job => job.Status == JobStatus.DOWNLOADING),
+                DownloadingJobs = allJobs.Count(job => job.Status == JobStatus.DOWNLOADING),
                 PendingUploadJobs = allJobs.Count(job => job.Status == JobStatus.PENDING_UPLOAD),
                 UploadingJobs = allJobs.Count(job => job.Status == JobStatus.UPLOADING),
-                RetryingJobs = allJobs.Count(job => job.Status == JobStatus.RETRYING),
+                RetryingJobs = allJobs.Count(job => job.Status == JobStatus.RETRYING ||
+                                                    job.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                                                    job.Status == JobStatus.UPLOAD_RETRY ||
+                                                    job.Status == JobStatus.SYNC_RETRY),
                 CancelledJobs = allJobs.Count(job => job.Status == JobStatus.CANCELLED)
             };
 

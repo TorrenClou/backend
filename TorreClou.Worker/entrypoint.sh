@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# Mount Backblaze B2 using rclone if credentials are provided
+# Configure rclone for sync operations (no mount needed - downloads go to block storage)
 if [ -n "$BACKBLAZE_KEY_ID" ] && [ -n "$BACKBLAZE_APP_KEY" ]; then
-    echo "[ENTRYPOINT] Configuring rclone for Backblaze B2..."
+    echo "[ENTRYPOINT] Configuring rclone for Backblaze B2 sync..."
     
-    # Configure rclone
+    # Configure rclone (needed for rclone copy command after download)
     mkdir -p /root/.config/rclone
     cat > /root/.config/rclone/rclone.conf << EOF
 [backblaze]
@@ -14,36 +14,11 @@ account = ${BACKBLAZE_KEY_ID}
 key = ${BACKBLAZE_APP_KEY}
 EOF
     
-    echo "[ENTRYPOINT] Mounting Backblaze B2 bucket: ${BACKBLAZE_BUCKET:-torrenclo}"
-    
-    # Mount the bucket with write caching (required for torrent random writes)
-    # Use aggressive cache limits to minimize disk usage:
-    # - Immediate write-back (0s) to upload to B2 as soon as possible
-    # - Small cache size limit (1G) to prevent unlimited growth
-    # - Short cache age (1h) to expire old entries quickly
-    rclone mount backblaze:${BACKBLAZE_BUCKET:-torrenclo} /mnt/backblaze \
-        --allow-other \
-        --vfs-cache-mode writes \
-        --vfs-write-back 0s \
-        --vfs-cache-max-size 1G \
-        --vfs-cache-max-age 1h \
-        --buffer-size 64M \
-        --dir-cache-time 5m \
-        --log-level INFO \
-        --daemon
-    
-    # Wait for mount to be ready
-    sleep 3
-    
-    # Verify mount
-    if mountpoint -q /mnt/backblaze; then
-        echo "[ENTRYPOINT] Backblaze B2 mounted successfully at /mnt/backblaze"
-    else
-        echo "[ENTRYPOINT] WARNING: Backblaze B2 mount may have failed, check logs"
-    fi
+    echo "[ENTRYPOINT] Rclone configured for sync operations"
+    echo "[ENTRYPOINT] Downloads will go to block storage, then sync to B2 after completion"
 else
-    echo "[ENTRYPOINT] Backblaze credentials not provided, skipping mount"
-    echo "[ENTRYPOINT] Set BACKBLAZE_KEY_ID and BACKBLAZE_APP_KEY to enable B2 mount"
+    echo "[ENTRYPOINT] Backblaze credentials not provided"
+    echo "[ENTRYPOINT] Set BACKBLAZE_KEY_ID and BACKBLAZE_APP_KEY to enable B2 sync"
 fi
 
 # Start the .NET worker

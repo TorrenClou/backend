@@ -11,7 +11,10 @@ namespace TorreClou.Core.Interfaces
         int Id { get; }
 
         /// <summary>
-        /// Current status of the job (QUEUED, DOWNLOADING, PROCESSING, PENDING_UPLOAD, UPLOADING, etc.)
+        /// Current status of the job. Active states: QUEUED, DOWNLOADING, SYNCING, PENDING_UPLOAD, UPLOADING.
+        /// Retry states: TORRENT_DOWNLOAD_RETRY, UPLOAD_RETRY, SYNC_RETRY.
+        /// Failure states: TORRENT_FAILED, UPLOAD_FAILED, GOOGLE_DRIVE_FAILED, FAILED.
+        /// Terminal states: COMPLETED, CANCELLED.
         /// </summary>
         JobStatus Status { get; set; }
 

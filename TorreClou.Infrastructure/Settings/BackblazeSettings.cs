@@ -8,6 +8,7 @@ namespace TorreClou.Infrastructure.Settings
         public string Endpoint { get; set; } = string.Empty;
         public string MountPath { get; set; } = "/mnt/backblaze";
         public bool UseFuseMount { get; set; } = true;
+        public string BlockStoragePath { get; set; } = "/mnt/torrents";
     }
 }
 

@@ -161,23 +161,26 @@ namespace TorreClou.Worker.Services
                 return job.DownloadPath;
             }
 
-            // Use Backblaze FUSE mount if enabled and available
-            if (_backblazeSettings.UseFuseMount && 
-                !string.IsNullOrEmpty(_backblazeSettings.MountPath) &&
-                Directory.Exists(_backblazeSettings.MountPath))
+            // Use block storage for downloads
+            var blockStoragePath = _backblazeSettings.BlockStoragePath;
+            if (string.IsNullOrEmpty(blockStoragePath))
             {
-                var b2Path = Path.Combine(_backblazeSettings.MountPath, "torrents", job.Id.ToString());
-                Directory.CreateDirectory(b2Path);
-                Logger.LogInformation("{LogPrefix} Using Backblaze FUSE mount | JobId: {JobId} | Path: {Path}",
-                    LogPrefix, job.Id, b2Path);
-                return b2Path;
+                blockStoragePath = "/mnt/torrents"; // Default fallback
             }
 
-            // Fallback to local disk
-            var downloadPath = Path.Combine(AppContext.BaseDirectory, "data", "torrents", job.Id.ToString());
+            // Verify block storage path exists
+            if (!Directory.Exists(blockStoragePath))
+            {
+                Logger.LogError("{LogPrefix} Block storage path does not exist | JobId: {JobId} | Path: {Path}",
+                    LogPrefix, job.Id, blockStoragePath);
+                throw new DirectoryNotFoundException($"Block storage path does not exist: {blockStoragePath}");
+            }
+
+            // Create job-specific directory on block storage
+            var downloadPath = Path.Combine(blockStoragePath, job.Id.ToString());
             Directory.CreateDirectory(downloadPath);
 
-            Logger.LogInformation("{LogPrefix} Created new download path | JobId: {JobId} | Path: {Path}",
+            Logger.LogInformation("{LogPrefix} Using block storage for download | JobId: {JobId} | Path: {Path}",
                 LogPrefix, job.Id, downloadPath);
 
             return downloadPath;
@@ -265,6 +268,8 @@ namespace TorreClou.Worker.Services
                     var errorReason = manager.Error?.Reason.ToString() ?? "Unknown error";
                     Logger.LogError("{LogPrefix} Torrent error | JobId: {JobId} | Error: {Error}", 
                         LogPrefix, job.Id, errorReason);
+                    // Mark as TORRENT_FAILED - BaseJob will handle retry logic and set TORRENT_DOWNLOAD_RETRY if retries available
+                    job.Status = JobStatus.TORRENT_FAILED;
                     await MarkJobFailedAsync(job, $"Torrent error: {errorReason}");
                     return false;
                 }
@@ -354,41 +359,35 @@ namespace TorreClou.Worker.Services
             // Save final state
             await SaveEngineStateAsync(engine, "download-complete");
 
-            // Force sync to Backblaze B2 if using FUSE mount
-            await SyncToBackblazeAsync(job);
-
-            // Update job status to PENDING_UPLOAD - waiting for upload worker to pick it up
-            job.Status = JobStatus.PENDING_UPLOAD;
-            job.CurrentState = "Download complete. Waiting for upload...";
-            job.BytesDownloaded = job.TotalBytes;
-            await UnitOfWork.Complete();
-
-            Logger.LogInformation("{LogPrefix} Publishing to upload stream | JobId: {JobId} | Provider: {Provider}", 
-                LogPrefix, job.Id, job.StorageProfile?.ProviderType);
-
-            // Publish to provider-specific Redis stream
-            var streamKey = GetUploadStreamKey(job.StorageProfile?.ProviderType ?? StorageProviderType.GoogleDrive);
-            var db = redis.GetDatabase();
+            // Store original download path (block storage path) for cleanup
+            var originalDownloadPath = job.DownloadPath;
 
             try
             {
-                // Remove the FastResume file as it's no longer needed
-                var cacheFile = Path.Combine(job.DownloadPath!, $"dht_nodes.cache");
-                var fresumeFile = Path.Combine(job.DownloadPath!, $"fastresume");
-                if (File.Exists(fresumeFile))
-                {
-                    File.Delete(fresumeFile);
-                    Logger.LogInformation("{LogPrefix} Deleted FastResume file | JobId: {JobId} | File: {File}", 
-                        LogPrefix, job.Id, fresumeFile);
-                }
+                // Step 1: Sync files from block storage to Backblaze B2
+                await SyncToBackblazeAsync(job);
 
+                // Step 2: Update job download path to B2 relative path
+                // Google Drive worker will read from /mnt/backblaze/torrents/{jobId}
+                job.DownloadPath = $"torrents/{job.Id}";
+                Logger.LogInformation("{LogPrefix} Updated download path to B2 location | JobId: {JobId} | Path: {Path}", 
+                    LogPrefix, job.Id, job.DownloadPath);
 
-                if (File.Exists(cacheFile))
-                {
-                    File.Delete(cacheFile);
-                    Logger.LogInformation("{LogPrefix} Deleted DHT cache file | JobId: {JobId} | File: {File}", 
-                        LogPrefix, job.Id, cacheFile);
-                }
+                // Step 3: Clean up block storage (delete original download directory)
+                await CleanupBlockStorageAsync(new UserJob { Id = job.Id, DownloadPath = originalDownloadPath });
+
+                // Step 4: Update job status to PENDING_UPLOAD - waiting for upload worker to pick it up
+                job.Status = JobStatus.PENDING_UPLOAD;
+                job.CurrentState = "Download complete. Files synced to B2. Waiting for upload...";
+                job.BytesDownloaded = job.TotalBytes;
+                await UnitOfWork.Complete();
+
+                Logger.LogInformation("{LogPrefix} Publishing to upload stream | JobId: {JobId} | Provider: {Provider}", 
+                    LogPrefix, job.Id, job.StorageProfile?.ProviderType);
+
+                // Step 5: Publish to provider-specific Redis stream
+                var streamKey = GetUploadStreamKey(job.StorageProfile?.ProviderType ?? StorageProviderType.GoogleDrive);
+                var db = redis.GetDatabase();
 
                 await db.StreamAddAsync(streamKey, [
                     new NameValueEntry("jobId", job.Id.ToString()),
@@ -403,13 +402,15 @@ namespace TorreClou.Worker.Services
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Failed to publish to upload stream | JobId: {JobId} | Stream: {Stream}", 
-                    LogPrefix, job.Id, streamKey);
+                Logger.LogError(ex, "{LogPrefix} Failed during download completion | JobId: {JobId}", 
+                    LogPrefix, job.Id);
                 
-                // Mark job as failed if we can't publish
+                // Mark job as failed - sync or other step failed
+                // Do NOT cleanup block storage on failure (files may be needed for retry)
                 job.Status = JobStatus.FAILED;
-                job.ErrorMessage = $"Failed to publish to upload stream: {ex.Message}";
+                job.ErrorMessage = $"Failed during download completion: {ex.Message}";
                 await UnitOfWork.Complete();
+                throw; // Re-throw to ensure job is marked as failed
             }
         }
 
@@ -421,40 +422,40 @@ namespace TorreClou.Worker.Services
         }
 
         /// <summary>
-        /// Forces rclone to sync cached files to Backblaze B2.
-        /// This ensures files are visible to the GoogleDrive upload worker which has its own rclone mount.
-        /// With --vfs-write-back 0s, files should upload immediately, but this sync ensures
-        /// all cached writes are flushed and files are fully available in B2.
+        /// Syncs downloaded files from block storage to Backblaze B2.
+        /// Files are uploaded to B2 bucket at torrents/{jobId} path.
         /// </summary>
         private async Task SyncToBackblazeAsync(UserJob job)
         {
-            // Only sync if using FUSE mount and download path is under the mount
-            if (!_backblazeSettings.UseFuseMount || 
-                string.IsNullOrEmpty(_backblazeSettings.MountPath) ||
-                string.IsNullOrEmpty(job.DownloadPath) ||
-                !job.DownloadPath.StartsWith(_backblazeSettings.MountPath, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(job.DownloadPath))
             {
-                Logger.LogInformation("{LogPrefix} Skipping Backblaze sync - not using FUSE mount or path not under mount | JobId: {JobId}", 
+                Logger.LogError("{LogPrefix} Cannot sync - download path is empty | JobId: {JobId}", 
                     LogPrefix, job.Id);
-                return;
+                throw new InvalidOperationException("Download path is empty");
+            }
+
+            if (string.IsNullOrEmpty(_backblazeSettings.BucketName))
+            {
+                Logger.LogError("{LogPrefix} Cannot sync - bucket name is not configured | JobId: {JobId}", 
+                    LogPrefix, job.Id);
+                throw new InvalidOperationException("Bucket name is not configured");
             }
 
             try
             {
-                // Update job status
-                job.CurrentState = "Syncing files to cloud storage...";
+                // Update job status to SYNCING
+                job.Status = JobStatus.SYNCING;
+                job.CurrentState = "Syncing files to Backblaze B2...";
                 await UnitOfWork.Complete();
 
-                Logger.LogInformation("{LogPrefix} Starting Backblaze B2 sync | JobId: {JobId} | Path: {Path}", 
-                    LogPrefix, job.Id, job.DownloadPath);
+                Logger.LogInformation("{LogPrefix} Starting Backblaze B2 sync | JobId: {JobId} | Source: {Source} | Bucket: {Bucket}", 
+                    LogPrefix, job.Id, job.DownloadPath, _backblazeSettings.BucketName);
 
-                // Get relative path from mount point (e.g., "/mnt/backblaze/torrents/123" -> "torrents/123")
-                var relativePath = job.DownloadPath.Substring(_backblazeSettings.MountPath.Length).TrimStart('/', '\\');
-                var bucketPath = $"backblaze:{_backblazeSettings.BucketName}/{relativePath}";
+                // Build destination path in B2 bucket
+                var bucketPath = $"backblaze:{_backblazeSettings.BucketName}/torrents/{job.Id}";
 
-                // Execute rclone sync to force upload cached files
+                // Execute rclone copy to upload files from block storage to B2
                 // Using "copy" instead of "sync" to avoid deleting files that may exist in B2
-                // Add flags to prevent bucket creation and handle existing paths gracefully
                 var processInfo = new ProcessStartInfo
                 {
                     FileName = "rclone",
@@ -469,7 +470,19 @@ namespace TorreClou.Worker.Services
                 var outputBuilder = new System.Text.StringBuilder();
                 var errorBuilder = new System.Text.StringBuilder();
 
-                process.OutputDataReceived += (_, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
+                process.OutputDataReceived += (_, e) => 
+                { 
+                    if (e.Data != null) 
+                    {
+                        outputBuilder.AppendLine(e.Data);
+                        // Log progress updates
+                        if (e.Data.Contains("%") || e.Data.Contains("Transferred"))
+                        {
+                            Logger.LogDebug("{LogPrefix} Sync progress | JobId: {JobId} | {Progress}", 
+                                LogPrefix, job.Id, e.Data.Trim());
+                        }
+                    }
+                };
                 process.ErrorDataReceived += (_, e) => { if (e.Data != null) errorBuilder.AppendLine(e.Data); };
 
                 process.Start();
@@ -477,13 +490,13 @@ namespace TorreClou.Worker.Services
                 process.BeginErrorReadLine();
 
                 // Wait for sync to complete (with timeout)
-                var timeout = TimeSpan.FromMinutes(30);
+                var timeout = TimeSpan.FromMinutes(60); // Increased timeout for large files
                 if (!process.WaitForExit((int)timeout.TotalMilliseconds))
                 {
-                    Logger.LogWarning("{LogPrefix} Backblaze sync timed out after {Timeout} minutes | JobId: {JobId}", 
+                    Logger.LogError("{LogPrefix} Backblaze sync timed out after {Timeout} minutes | JobId: {JobId}", 
                         LogPrefix, timeout.TotalMinutes, job.Id);
                     try { process.Kill(); } catch { /* ignore */ }
-                    return;
+                    throw new TimeoutException($"Backblaze sync timed out after {timeout.TotalMinutes} minutes");
                 }
 
                 if (process.ExitCode == 0)
@@ -493,16 +506,59 @@ namespace TorreClou.Worker.Services
                 }
                 else
                 {
-                    Logger.LogWarning("{LogPrefix} Backblaze sync exited with code {ExitCode} | JobId: {JobId} | Error: {Error}", 
-                        LogPrefix, process.ExitCode, job.Id, errorBuilder.ToString());
+                    var errorOutput = errorBuilder.ToString();
+                    Logger.LogError("{LogPrefix} Backblaze sync failed with exit code {ExitCode} | JobId: {JobId} | Error: {Error}", 
+                        LogPrefix, process.ExitCode, job.Id, errorOutput);
+                    throw new Exception($"Rclone sync failed with exit code {process.ExitCode}: {errorOutput}");
                 }
             }
             catch (Exception ex)
             {
-                // Log but don't fail - sync is best effort, files may still be visible
-                Logger.LogWarning(ex, "{LogPrefix} Failed to sync to Backblaze B2 | JobId: {JobId}", 
+                Logger.LogError(ex, "{LogPrefix} Failed to sync to Backblaze B2 | JobId: {JobId}", 
                     LogPrefix, job.Id);
+                throw; // Re-throw to fail the job
             }
+        }
+
+        /// <summary>
+        /// Cleans up block storage directory after successful sync to B2.
+        /// Deletes the entire job directory to free up space.
+        /// </summary>
+        private async Task CleanupBlockStorageAsync(UserJob job)
+        {
+            if (string.IsNullOrEmpty(job.DownloadPath))
+            {
+                Logger.LogWarning("{LogPrefix} Cannot cleanup - download path is empty | JobId: {JobId}", 
+                    LogPrefix, job.Id);
+                return;
+            }
+
+            try
+            {
+                Logger.LogInformation("{LogPrefix} Cleaning up block storage | JobId: {JobId} | Path: {Path}", 
+                    LogPrefix, job.Id, job.DownloadPath);
+
+                if (Directory.Exists(job.DownloadPath))
+                {
+                    Directory.Delete(job.DownloadPath, recursive: true);
+                    Logger.LogInformation("{LogPrefix} Block storage cleaned up successfully | JobId: {JobId} | Path: {Path}", 
+                        LogPrefix, job.Id, job.DownloadPath);
+                }
+                else
+                {
+                    Logger.LogWarning("{LogPrefix} Block storage path does not exist (may have been cleaned already) | JobId: {JobId} | Path: {Path}", 
+                        LogPrefix, job.Id, job.DownloadPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail - cleanup is best effort
+                // Job can still proceed even if cleanup fails
+                Logger.LogWarning(ex, "{LogPrefix} Failed to cleanup block storage | JobId: {JobId} | Path: {Path}", 
+                    LogPrefix, job.Id, job.DownloadPath);
+            }
+
+            await Task.CompletedTask;
         }
     }
 }

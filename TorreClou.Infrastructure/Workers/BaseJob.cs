@@ -208,7 +208,8 @@ namespace TorreClou.Infrastructure.Workers
 
         /// <summary>
         /// Marks the job as failed with an error message.
-        /// If retries are available (determined by Hangfire), sets status to RETRYING instead of FAILED.
+        /// If retries are available (determined by Hangfire), sets status to specific retry state based on current phase.
+        /// Otherwise, sets appropriate failure state.
         /// </summary>
         protected async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
         {
@@ -216,27 +217,43 @@ namespace TorreClou.Infrastructure.Workers
             {
                 if (hasRetries)
                 {
-                    // Job will be retried by Hangfire - mark as RETRYING
-                    job.Status = JobStatus.RETRYING;
+                    // Determine retry state based on current job phase
+                    JobStatus retryStatus = job.Status switch
+                    {
+                        JobStatus.DOWNLOADING or JobStatus.TORRENT_FAILED or JobStatus.TORRENT_DOWNLOAD_RETRY => JobStatus.TORRENT_DOWNLOAD_RETRY,
+                        JobStatus.SYNCING or JobStatus.SYNC_RETRY => JobStatus.SYNC_RETRY,
+                        JobStatus.UPLOADING or JobStatus.UPLOAD_RETRY => JobStatus.UPLOAD_RETRY,
+                        _ => JobStatus.RETRYING // Fallback to generic retry state
+                    };
+                    
+                    job.Status = retryStatus;
                     job.ErrorMessage = errorMessage;
                     // NextRetryAt will be set by Hangfire's retry mechanism
                     // We estimate it based on typical retry delays: 60s, 300s, 900s
                     // This is approximate - Hangfire will handle actual scheduling
                     job.NextRetryAt = DateTime.UtcNow.AddMinutes(1); // Conservative estimate
                     
-                    Logger.LogWarning("{LogPrefix} Job marked as RETRYING | JobId: {JobId} | Error: {Error} | NextRetryAt: {NextRetry}", 
-                        LogPrefix, job.Id, errorMessage, job.NextRetryAt);
+                    Logger.LogWarning("{LogPrefix} Job marked as {RetryStatus} | JobId: {JobId} | Error: {Error} | NextRetryAt: {NextRetry}", 
+                        LogPrefix, retryStatus, job.Id, errorMessage, job.NextRetryAt);
                 }
                 else
                 {
-                    // All retries exhausted - mark as FAILED
-                    job.Status = JobStatus.FAILED;
+                    // Determine failure state based on current job phase
+                    JobStatus failureStatus = job.Status switch
+                    {
+                        JobStatus.DOWNLOADING or JobStatus.TORRENT_DOWNLOAD_RETRY or JobStatus.TORRENT_FAILED => JobStatus.TORRENT_FAILED,
+                        JobStatus.SYNCING or JobStatus.SYNC_RETRY => JobStatus.UPLOAD_FAILED, // Sync failures are upload-related
+                        JobStatus.UPLOADING or JobStatus.UPLOAD_RETRY => JobStatus.UPLOAD_FAILED,
+                        _ => JobStatus.FAILED // Fallback to generic failure state
+                    };
+                    
+                    job.Status = failureStatus;
                     job.ErrorMessage = errorMessage;
                     job.CompletedAt = DateTime.UtcNow;
                     job.NextRetryAt = null; // Clear retry time
                     
-                    Logger.LogError("{LogPrefix} Job marked as FAILED (no retries remaining) | JobId: {JobId} | Error: {Error}", 
-                        LogPrefix, job.Id, errorMessage);
+                    Logger.LogError("{LogPrefix} Job marked as {FailureStatus} (no retries remaining) | JobId: {JobId} | Error: {Error}", 
+                        LogPrefix, failureStatus, job.Id, errorMessage);
                 }
                 
                 await UnitOfWork.Complete();
@@ -253,16 +270,24 @@ namespace TorreClou.Infrastructure.Workers
         /// </summary>
         protected bool HasRetriesAvailable(UserJob job)
         {
-            // If job is already FAILED, no retries
-            if (job.Status == JobStatus.FAILED)
+            // If job is in a terminal failure state, no retries
+            if (job.Status == JobStatus.FAILED ||
+                job.Status == JobStatus.TORRENT_FAILED ||
+                job.Status == JobStatus.UPLOAD_FAILED ||
+                job.Status == JobStatus.GOOGLE_DRIVE_FAILED ||
+                job.Status == JobStatus.COMPLETED ||
+                job.Status == JobStatus.CANCELLED)
                 return false;
 
-            // If job is in RETRYING state, assume retries might still be available
+            // If job is in any retry state, assume retries might still be available
             // (Hangfire will eventually mark as FAILED when exhausted)
-            if (job.Status == JobStatus.RETRYING)
+            if (job.Status == JobStatus.RETRYING ||
+                job.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                job.Status == JobStatus.UPLOAD_RETRY ||
+                job.Status == JobStatus.SYNC_RETRY)
                 return true;
 
-            // For other states, assume retries might be available
+            // For other active states, assume retries might be available
             // Hangfire's AutomaticRetry will handle actual retry logic
             return true;
         }
