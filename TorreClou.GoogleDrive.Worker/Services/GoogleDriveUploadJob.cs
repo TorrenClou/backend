@@ -9,6 +9,7 @@ using TorreClou.Infrastructure.Services;
 using TorreClou.Infrastructure.Settings;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
+using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
 
 namespace TorreClou.GoogleDrive.Worker.Services
 {
@@ -224,7 +225,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             try
             {
                 // Create Sync entity with Pending status
-                var sync = new Sync
+                var sync = new SyncEntity
                 {
                     JobId = job.Id,
                     Status = SyncStatus.Pending,
@@ -238,8 +239,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     RetryCount = 0
                 };
 
-                var syncRepository = UnitOfWork.Repository<Sync>();
-                await syncRepository.AddAsync(sync);
+                var syncRepository = UnitOfWork.Repository<SyncEntity>();
+                syncRepository.Add(sync);
                 await UnitOfWork.Complete();
 
                 Logger.LogInformation("{LogPrefix} Created Sync entity | JobId: {JobId} | SyncId: {SyncId} | TotalBytes: {TotalBytes} | Files: {Files}",
