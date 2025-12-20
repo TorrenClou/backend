@@ -164,9 +164,19 @@ namespace TorreClou.Worker.Services
                 }
                 else if (actualDownloaded == 0 && job.BytesDownloaded > 0)
                 {
-                    // Manager shows 0 but DB has progress - this shouldn't happen, but log it
-                    Logger.LogWarning("{LogPrefix} Manager shows 0 bytes but DB has {DbBytes} bytes | JobId: {JobId} | ManagerState: {State} | ManagerProgress: {Progress}%", 
-                        LogPrefix, job.BytesDownloaded, job.Id, manager.State, manager.Progress);
+                    // Manager shows 0 but DB has progress - trust DB when manager has valid progress
+                    if (manager.Progress > 0)
+                    {
+                        Logger.LogInformation("{LogPrefix} Manager shows 0 bytes but DB has {DbBytes} bytes, trusting DB | JobId: {JobId} | ManagerState: {State} | ManagerProgress: {Progress}%", 
+                            LogPrefix, job.BytesDownloaded, job.Id, manager.State, manager.Progress);
+                        actualDownloaded = job.BytesDownloaded;
+                    }
+                    else
+                    {
+                        // Manager shows 0 and no progress - this shouldn't happen, but log it
+                        Logger.LogWarning("{LogPrefix} Manager shows 0 bytes but DB has {DbBytes} bytes | JobId: {JobId} | ManagerState: {State} | ManagerProgress: {Progress}%", 
+                            LogPrefix, job.BytesDownloaded, job.Id, manager.State, manager.Progress);
+                    }
                 }
 
                 Logger.LogInformation("{LogPrefix} Download started | JobId: {JobId} | Initial State: {State} | ResumedBytes: {ResumedBytes} | Progress: {Progress}%", 
@@ -298,7 +308,7 @@ namespace TorreClou.Worker.Services
             var lastDbUpdate = DateTime.MinValue;
             var lastLoggedBytes = 0L;
             var lastLogTime = DateTime.UtcNow;
-            const long LogThresholdBytes = 1024 * 1024 *2; // Log every 2 MB
+            const long LogThresholdBytes = 1024 * 1024 *10; // Log every 10 MB
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -306,6 +316,12 @@ namespace TorreClou.Worker.Services
 
                 // Update progress metrics
                 var actualDownloaded = manager.Monitor.DataBytesReceived;
+                
+                // If manager shows 0 bytes but DB has progress and manager has valid progress, trust DB
+                if (actualDownloaded == 0 && job.BytesDownloaded > 0 && manager.Progress > 0)
+                {
+                    actualDownloaded = job.BytesDownloaded;
+                }
 
                 // Check for completion
                 if (manager.Progress >= 100.0 || manager.State == TorrentState.Seeding)
