@@ -9,6 +9,7 @@ using TorreClou.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Hangfire;
+using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
 
 namespace TorreClou.Sync.Worker.Services
 {
@@ -24,16 +25,22 @@ namespace TorreClou.Sync.Worker.Services
 
         protected override string LogPrefix => "[S3:SYNC]";
 
+        protected override void ConfigureSpecification(BaseSpecification<UserJob> spec)
+        {
+            spec.AddInclude(j => j.StorageProfile);
+            spec.AddInclude(j => j.User);
+        }
+
         [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 })]
         [Queue("sync")]
-        public async Task ExecuteAsync(int syncId, CancellationToken cancellationToken = default)
+        public new async Task ExecuteAsync(int syncId, CancellationToken cancellationToken = default)
         {
             try
             {
                 Logger.LogInformation("{LogPrefix} Starting S3 sync job | SyncId: {SyncId}", LogPrefix, syncId);
 
                 // Load Sync entity
-                var syncRepository = UnitOfWork.Repository<Sync>();
+                var syncRepository = UnitOfWork.Repository<SyncEntity>();
                 var sync = await syncRepository.GetByIdAsync(syncId);
                 if (sync == null)
                 {
@@ -63,7 +70,14 @@ namespace TorreClou.Sync.Worker.Services
             }
         }
 
-        private async Task ExecuteCoreAsync(Sync sync, UserJob job, CancellationToken cancellationToken)
+        protected override async Task ExecuteCoreAsync(UserJob job, CancellationToken cancellationToken)
+        {
+            // This method is required by BaseJob but we don't use it
+            // We use the overload that takes Sync and UserJob
+            throw new NotImplementedException("Use ExecuteAsync(int syncId) instead");
+        }
+
+        private async Task ExecuteCoreAsync(SyncEntity sync, UserJob job, CancellationToken cancellationToken)
         {
             // Store original download path (block storage path) for cleanup
             var originalDownloadPath = sync.LocalFilePath ?? job.DownloadPath;
@@ -227,7 +241,7 @@ namespace TorreClou.Sync.Worker.Services
             }
         }
 
-        private async Task<Result> UploadFileWithResumeAsync(Sync sync, UserJob job, FileInfo file, string s3Key, CancellationToken cancellationToken)
+        private async Task<Result> UploadFileWithResumeAsync(SyncEntity sync, UserJob job, FileInfo file, string s3Key, CancellationToken cancellationToken)
         {
             try
             {
@@ -426,7 +440,7 @@ namespace TorreClou.Sync.Worker.Services
             return merged.OrderBy(p => p.PartNumber).ToList();
         }
 
-        private async Task MarkSyncFailedAsync(Sync sync, string errorMessage, bool hasRetries = true)
+        private async Task MarkSyncFailedAsync(SyncEntity sync, string errorMessage, bool hasRetries = true)
         {
             sync.Status = SyncStatus.Failed;
             sync.ErrorMessage = errorMessage;

@@ -7,6 +7,7 @@ using TorreClou.Sync.Worker.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Hangfire;
+using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
 
 namespace TorreClou.Sync.Worker
 {
@@ -56,17 +57,17 @@ namespace TorreClou.Sync.Worker
                 }
 
                 // Fetch Sync entity from database for validation
-                Sync? sync = null;
+                SyncEntity? sync = null;
                 if (syncId.HasValue)
                 {
-                    sync = await unitOfWork.Repository<Sync>().GetByIdAsync(syncId.Value);
+                    sync = await unitOfWork.Repository<SyncEntity>().GetByIdAsync(syncId.Value);
                 }
                 else
                 {
-                    // If syncId not provided, find by JobId
-                    var syncRepository = unitOfWork.Repository<Sync>();
-                    var syncs = await syncRepository.GetAllAsync();
-                    sync = syncs.FirstOrDefault(s => s.JobId == jobId);
+                    // If syncId not provided, find by JobId using specification
+                    var syncRepository = unitOfWork.Repository<SyncEntity>();
+                    var spec = new TorreClou.Core.Specifications.BaseSpecification<SyncEntity>(s => s.JobId == jobId);
+                    sync = await syncRepository.GetEntityWithSpec(spec);
                 }
 
                 if (sync == null)
@@ -122,7 +123,7 @@ namespace TorreClou.Sync.Worker
                 var syncIdStr = entry["syncId"].ToString();
                 if (!string.IsNullOrEmpty(syncIdStr) && int.TryParse(syncIdStr, out var syncId))
                 {
-                    var sync = await errorUnitOfWork.Repository<Sync>().GetByIdAsync(syncId);
+                    var sync = await errorUnitOfWork.Repository<SyncEntity>().GetByIdAsync(syncId);
                     if (sync != null)
                     {
                         sync.Status = SyncStatus.Failed;
