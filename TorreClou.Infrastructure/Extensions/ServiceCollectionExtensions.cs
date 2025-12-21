@@ -11,6 +11,9 @@ using TorreClou.Infrastructure.Services;
 using TorreClou.Infrastructure.Settings;
 using TorreClou.Core.Options;
 using TorreClou.Application.Services.Google_Drive;
+using TorreClou.Infrastructure.Services.Redis;
+using TorreClou.Infrastructure.Services.S3;
+using TorreClou.Infrastructure.Services.Drive;
 
 namespace TorreClou.Infrastructure.Extensions
 {
@@ -29,6 +32,8 @@ namespace TorreClou.Infrastructure.Extensions
             // Backblaze B2 Storage
             services.Configure<BackblazeSettings>(configuration.GetSection("Backblaze"));
             services.AddSingleton<IBlobStorageService, BackblazeStorageService>();
+            services.AddScoped<IS3ResumableUploadService, S3ResumableUploadService>();
+            services.AddScoped<IS3FileDownloadService, S3FileDownloadService>();
 
             // Redis
             var redisSettings = configuration.GetSection("Redis").Get<RedisSettings>() ?? new RedisSettings();
@@ -36,18 +41,23 @@ namespace TorreClou.Infrastructure.Extensions
                 ConnectionMultiplexer.Connect(redisSettings.ConnectionString)
             );
 
+            // Redis Services
+            services.AddSingleton<IRedisCacheService, RedisCacheService>();
+            services.AddScoped<IRedisLockService, RedisLockService>();
+            services.AddSingleton<IRedisStreamService, RedisStreamService>();
+
             services.AddScoped<ITokenService, TokenService>();
 
             // Google Drive Services
             services.Configure<GoogleDriveSettings>(configuration.GetSection("GoogleDrive"));
-            services.AddScoped<IGoogleDriveJob, GoogleDriveJobService>();
+            services.AddScoped<IGoogleDriveJobService, GoogleDriveJobService>();
             services.AddScoped<IGoogleDriveService, GoogleDriveService>();
 
             // Upload Progress Context (scoped per Hangfire job)
             services.AddScoped<IUploadProgressContext, UploadProgressContext>();
 
             // Transfer Speed Metrics (singleton for metrics collection)
-            services.AddSingleton<TransferSpeedMetrics>();
+            services.AddSingleton<ITransferSpeedMetrics, TransferSpeedMetrics>();
 
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {

@@ -1,25 +1,32 @@
+using Hangfire;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TorreClou.Application.Services.Google_Drive;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
+using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Core.Specifications;
-using Microsoft.Extensions.Logging;
-using Hangfire;
-using TorreClou.Infrastructure.Workers;
 using TorreClou.Infrastructure.Services;
+using TorreClou.Infrastructure.Settings;
+using TorreClou.Infrastructure.Workers;
+using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
 
 namespace TorreClou.GoogleDrive.Worker.Services
 {
-    /// <summary>
-    /// Hangfire job that handles uploading downloaded torrent files to Google Drive.
-    /// Supports resumable uploads and preserves folder structure.
-    /// </summary>
+   
     public class GoogleDriveUploadJob(
         IUnitOfWork unitOfWork,
         ILogger<GoogleDriveUploadJob> logger,
-        IGoogleDriveJob googleDriveService,
+        IGoogleDriveJobService googleDriveService,
         IUploadProgressContext progressContext,
-        ITransferSpeedMetrics speedMetrics) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger)
+        ITransferSpeedMetrics speedMetrics,
+        IOptions<BackblazeSettings> backblazeSettings,
+        IRedisLockService redisLockService,
+        IRedisStreamService redisStreamService) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger), IGoogleDriveUploadJob
     {
+        private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
+
         protected override string LogPrefix => "[GOOGLE_DRIVE:UPLOAD]";
 
         protected override void ConfigureSpecification(BaseSpecification<UserJob> spec)
@@ -28,8 +35,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             spec.AddInclude(j => j.User);
         }
 
-        [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 })]
-        [Queue("googledrive")]
+      
         public new async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
         {
             await base.ExecuteAsync(jobId, cancellationToken);
@@ -37,58 +43,90 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
         protected override async Task ExecuteCoreAsync(UserJob job, CancellationToken cancellationToken)
         {
-            // 1. Validate job state - must be in UPLOADING status
-            if (job.Status != JobStatus.UPLOADING)
+            // FIX: Extended lock time to 2 hours to cover large file uploads
+            var lockKey = $"gdrive:lock:{job.Id}";
+            var lockExpiry = TimeSpan.FromHours(2);
+
+            using var distributedLock = await redisLockService.AcquireLockAsync(lockKey, lockExpiry, cancellationToken);
+
+            if (distributedLock == null)
             {
-                Logger.LogWarning("{LogPrefix} Unexpected job status | JobId: {JobId} | Status: {Status}", 
-                    LogPrefix, job.Id, job.Status);
+                Logger.LogWarning("{LogPrefix} Job is already being processed by another instance | JobId: {JobId}",
+                    LogPrefix, job.Id);
+                return;
             }
 
-            // 2. Validate download path exists
+            Logger.LogInformation("{LogPrefix} Acquired Redis lock | JobId: {JobId} | Expiry: {Expiry}",
+                LogPrefix, job.Id, lockExpiry);
+
+            // 1. Handle Status Transitions
+            if (job.Status == JobStatus.PENDING_UPLOAD)
+            {
+                Logger.LogInformation("{LogPrefix} Job ready for upload, transitioning to UPLOADING | JobId: {JobId}", LogPrefix, job.Id);
+                job.Status = JobStatus.UPLOADING;
+                job.CurrentState = "Starting upload...";
+                if (job.StartedAt == null) job.StartedAt = DateTime.UtcNow;
+                job.LastHeartbeat = DateTime.UtcNow;
+                await UnitOfWork.Complete();
+            }
+            else if ( job.Status == JobStatus.UPLOAD_RETRY)
+            {
+                Logger.LogInformation("{LogPrefix} Retrying job | JobId: {JobId} | Retry: {NextRetry}", LogPrefix, job.Id, job.NextRetryAt);
+                job.Status = JobStatus.UPLOADING;
+                job.CurrentState = "Retrying upload...";
+                job.LastHeartbeat = DateTime.UtcNow;
+                await UnitOfWork.Complete();
+            }
+            else if (job.Status == JobStatus.UPLOADING)
+            {
+                if (job.StartedAt == null)
+                {
+                    job.StartedAt = DateTime.UtcNow;
+                    await UnitOfWork.Complete();
+                }
+                Logger.LogInformation("{LogPrefix} Resuming job from recovery | JobId: {JobId}", LogPrefix, job.Id);
+            }
+            else
+            {
+                // Warn but allow execution (could be manual trigger)
+                Logger.LogWarning("{LogPrefix} Unexpected status: {Status} | JobId: {JobId}", LogPrefix, job.Status, job.Id);
+            }
+
+            // 2. Validate Environment
             if (string.IsNullOrEmpty(job.DownloadPath) || !Directory.Exists(job.DownloadPath))
             {
-                await MarkJobFailedAsync(job, $"Download path {job.DownloadPath} not found. Files may have been deleted.");
+                await MarkJobFailedAsync(job, $"Download path not found: {job.DownloadPath}");
                 return;
             }
 
-            // 3. Validate storage profile
-            if (job.StorageProfile == null)
+            if (job.StorageProfile == null || job.StorageProfile.ProviderType != StorageProviderType.GoogleDrive)
             {
-                await MarkJobFailedAsync(job, "Storage profile not found.");
+                await MarkJobFailedAsync(job, "Invalid storage profile.");
                 return;
             }
 
-            if (job.StorageProfile.ProviderType != StorageProviderType.GoogleDrive)
-            {
-                await MarkJobFailedAsync(job, $"Invalid storage provider. Expected GoogleDrive, got {job.StorageProfile.ProviderType}");
-                return;
-            }
-
-            // 4. Get access token
-            await UpdateHeartbeatAsync(job, "Getting access token...");
+            // 3. Get Auth Token
+            await UpdateHeartbeatAsync(job, "Authenticating...");
             var tokenResult = await googleDriveService.GetAccessTokenAsync(job.StorageProfile.CredentialsJson, cancellationToken);
             if (tokenResult.IsFailure)
             {
-                await MarkJobFailedAsync(job, $"Failed to get access token: {tokenResult.Error.Message}");
+                await MarkJobFailedAsync(job, $"Auth failed: {tokenResult.Error.Message}");
                 return;
             }
+            var accessToken = job.StorageProfile.CredentialsJson;
 
-            var accessToken = tokenResult.Value;
-
-            // 5. Get files to upload (excluding .dht, .fresume, .torrent files)
+            // 4. Get Files (Using CORRECTED Filter Logic)
             var filesToUpload = GetFilesToUpload(job.DownloadPath);
             if (filesToUpload.Length == 0)
             {
-                await MarkJobFailedAsync(job, "No files found in download path.");
+                await MarkJobFailedAsync(job, "No valid files found in download path.");
                 return;
             }
 
             var totalBytes = filesToUpload.Sum(f => f.Length);
             var uploadStartTime = DateTime.UtcNow;
-            Logger.LogInformation("{LogPrefix} Found {FileCount} files to upload | JobId: {JobId} | TotalSize: {SizeMB:F2} MB",
-                LogPrefix, filesToUpload.Length, job.Id, totalBytes / (1024.0 * 1024.0));
 
-            // 6. Configure the progress context
+            // 5. Configure Progress Context
             progressContext.Configure(
                 job.Id,
                 totalBytes,
@@ -100,229 +138,224 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     await UnitOfWork.Complete();
                 });
 
-            // 7. Create root folder in Google Drive
-            await UpdateHeartbeatAsync(job, "Creating folder in Google Drive...");
-            var parentFolder = $"Torrent_{job.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
-            var folderResult = await googleDriveService.CreateFolderAsync(parentFolder, null, accessToken, cancellationToken);
-            if (folderResult.IsFailure)
+            // 6. Ensure Root Folder Exists
+            await UpdateHeartbeatAsync(job, "Checking Google Drive folder...");
+            var rootFolderId = await EnsureRootFolderExistsAsync(job, accessToken, cancellationToken);
+            if (rootFolderId == null) return; // Error handled inside helper
+
+            // 7. Filter Already Uploaded Files (Redis Check)
+            var filesToProcess = new List<FileInfo>();
+            foreach (var file in filesToUpload)
             {
-                await MarkJobFailedAsync(job, $"Failed to create folder: {folderResult.Error.Message}");
+                var relativePath = Path.GetRelativePath(job.DownloadPath, file.FullName);
+                var completedId = await progressContext.GetCompletedFileAsync(relativePath);
+
+                if (!string.IsNullOrEmpty(completedId))
+                {
+                    Logger.LogInformation("{LogPrefix} Skipping {File} (Already in Redis)", LogPrefix, file.Name);
+                    await progressContext.MarkFileCompletedAsync(file.Name, file.Length);
+                }
+                else
+                {
+                    filesToProcess.Add(file);
+                }
+            }
+
+            // 8. Create Folder Hierarchy
+            var folderIdMap = await CreateFolderHierarchyAsync(filesToProcess.ToArray(), job.DownloadPath, rootFolderId, accessToken, cancellationToken);
+
+            // 9. Upload Files
+            var result = await UploadFilesAsync(job, filesToProcess.ToArray(), folderIdMap, accessToken, cancellationToken);
+
+            // 10. Finalize Job
+            if (!result.AllFilesUploaded)
+            {
+                await MarkJobFailedAsync(job, $"Failed to upload {result.FailedFiles} of {result.TotalFiles} files.", hasRetries: true);
                 return;
             }
 
-            var rootFolderId = folderResult.Value;
-            Logger.LogInformation("{LogPrefix} Created root folder | JobId: {JobId} | FolderId: {FolderId}", 
-                LogPrefix, job.Id, rootFolderId);
+            var duration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
+            speedMetrics.RecordUploadComplete(job.Id, job.UserId, "googledrive_upload", totalBytes, duration);
 
-            // 8. Create folder hierarchy on Google Drive (preserving local structure)
-            var folderIdMap = await CreateFolderHierarchyAsync(
-                filesToUpload, job.DownloadPath, rootFolderId, accessToken, cancellationToken);
-
-            // 9. Upload files
-            await UploadFilesAsync(job, filesToUpload, folderIdMap, accessToken, cancellationToken);
-
-            // 10. Record final upload metrics
-            var uploadDuration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
-            speedMetrics.RecordUploadComplete(job.Id, job.UserId, "googledrive_upload", totalBytes, uploadDuration);
-
-            // 11. Mark as completed
             job.Status = JobStatus.COMPLETED;
             job.CompletedAt = DateTime.UtcNow;
             job.CurrentState = "Upload completed successfully";
+            job.NextRetryAt = null;
             await UnitOfWork.Complete();
 
-            Logger.LogInformation("{LogPrefix} Job completed successfully | JobId: {JobId}", LogPrefix, job.Id);
+            Logger.LogInformation("{LogPrefix} Completed successfully | JobId: {JobId}", LogPrefix, job.Id);
+
+            // 11. Trigger Sync (Optional)
+            await CreateSyncAndPublishToStreamAsync(job, totalBytes, filesToUpload.Length);
         }
+
+        // --- Helper Methods ---
 
         private FileInfo[] GetFilesToUpload(string downloadPath)
         {
-            var directory = new DirectoryInfo(downloadPath);
+            try
+            {
+                var dir = new DirectoryInfo(downloadPath);
+                if (!dir.Exists) return [];
 
-            // Get all files excluding MonoTorrent metadata files and .dht files
-            return [.. directory.GetFiles("*", SearchOption.AllDirectories)
-                .Where(f => !f.Name.EndsWith(".fresume", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.EndsWith(".dht", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.Equals("dht_nodes.cache", StringComparison.OrdinalIgnoreCase) &&
-                           !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase))];
+                // FIX: Only filter strictly system files, allow .torrent files if they are part of user content
+                return dir.GetFiles("*", SearchOption.AllDirectories)
+                    .Where(f =>
+                        !f.Name.Equals("dht_nodes.cache", StringComparison.OrdinalIgnoreCase) &&
+                        !f.Name.Equals("fastresume", StringComparison.OrdinalIgnoreCase) &&
+                        !f.Name.EndsWith(".fresume", StringComparison.OrdinalIgnoreCase) &&
+                        !f.Name.EndsWith(".dht", StringComparison.OrdinalIgnoreCase)
+                    )
+                    .ToArray();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "{LogPrefix} Error listing files", LogPrefix);
+                return [];
+            }
         }
 
-        /// <summary>
-        /// Creates the folder hierarchy on Google Drive matching the local directory structure.
-        /// Returns a dictionary mapping relative paths to Google Drive folder IDs.
-        /// </summary>
+        private async Task<string?> EnsureRootFolderExistsAsync(UserJob job, string accessToken, CancellationToken token)
+        {
+            var rootId = await progressContext.GetRootFolderIdAsync(job.Id);
+            if (!string.IsNullOrEmpty(rootId)) return rootId;
+
+            var folderName = $"Torrent_{job.Id}_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
+            var result = await googleDriveService.CreateFolderAsync(folderName, null, accessToken, token);
+
+            if (result.IsFailure)
+            {
+                await MarkJobFailedAsync(job, $"Failed to create root folder: {result.Error.Message}");
+                return null;
+            }
+
+            await progressContext.SetRootFolderIdAsync(job.Id, result.Value);
+            return result.Value;
+        }
+
         private async Task<Dictionary<string, string>> CreateFolderHierarchyAsync(
             FileInfo[] files,
-            string downloadPath,
-            string rootFolderId,
+            string rootPath,
+            string rootId,
             string accessToken,
-            CancellationToken cancellationToken)
+            CancellationToken token)
         {
-            var folderIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                [""] = rootFolderId,
-                ["."] = rootFolderId
+                [""] = rootId,
+                ["."] = rootId
             };
 
-            // Get unique directory paths, sorted by depth (parents first)
-            var directories = files
-                .Select(f => Path.GetRelativePath(downloadPath, f.DirectoryName!))
+            var uniqueDirs = files
+                .Select(f => Path.GetRelativePath(rootPath, f.DirectoryName!))
                 .Where(p => p != "." && !string.IsNullOrEmpty(p))
                 .Distinct()
-                .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar))
-                .ToList();
+                .OrderBy(p => p.Split(Path.DirectorySeparatorChar).Length); // Create parents first
 
-            if (directories.Count == 0)
+            foreach (var relPath in uniqueDirs)
             {
-                Logger.LogInformation("{LogPrefix} No subdirectories to create", LogPrefix);
-                return folderIdMap;
-            }
+                if (token.IsCancellationRequested) break;
 
-            Logger.LogInformation("{LogPrefix} Creating {Count} subdirectories on Google Drive", LogPrefix, directories.Count);
+                var parts = relPath.Split(Path.DirectorySeparatorChar);
+                var parentRel = parts.Length > 1 ? string.Join(Path.DirectorySeparatorChar, parts[..^1]) : ".";
+                var name = parts[^1];
 
-            foreach (var relPath in directories)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
+                var parentId = map.TryGetValue(parentRel, out var pid) ? pid : rootId;
 
-                // Split path into parts
-                var parts = relPath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-                
-                // Determine parent path
-                var parentPath = parts.Length > 1
-                    ? string.Join(Path.DirectorySeparatorChar, parts[..^1])
-                    : "";
+                // Optimization: In production, check if folder exists first or catch 409 Conflict
+                var result = await googleDriveService.CreateFolderAsync(name, parentId, accessToken, token);
 
-                var folderName = parts[^1];
-
-                // Get parent folder ID
-                if (!folderIdMap.TryGetValue(parentPath, out var parentId))
-                {
-                    parentId = rootFolderId;
-                }
-
-                // Create folder in Google Drive
-                var result = await googleDriveService.CreateFolderAsync(folderName, parentId, accessToken, cancellationToken);
-                
                 if (result.IsSuccess)
-                {
-                    folderIdMap[relPath] = result.Value;
-                    Logger.LogDebug("{LogPrefix} Created subfolder | Path: {Path} | FolderId: {FolderId}", 
-                        LogPrefix, relPath, result.Value);
-                }
+                    map[relPath] = result.Value;
                 else
-                {
-                    Logger.LogWarning("{LogPrefix} Failed to create subfolder | Path: {Path} | Error: {Error}",
-                        LogPrefix, relPath, result.Error.Message);
-                    // Use root folder as fallback
-                    folderIdMap[relPath] = rootFolderId;
-                }
+                    map[relPath] = parentId; // Fallback to parent
             }
-
-            return folderIdMap;
+            return map;
         }
 
-        private async Task UploadFilesAsync(
+        private class UploadResult { public int TotalFiles; public int FailedFiles; public bool AllFilesUploaded => FailedFiles == 0; }
+
+        private async Task<UploadResult> UploadFilesAsync(
             UserJob job,
             FileInfo[] files,
-            Dictionary<string, string> folderIdMap,
+            Dictionary<string, string> folderMap,
             string accessToken,
-            CancellationToken cancellationToken)
+            CancellationToken token)
         {
-            var totalFiles = files.Length;
-            var uploadedFiles = 0;
-            var failedFiles = 0;
-            var lastUploadTime = DateTime.UtcNow;
-            var lastUploadedBytes = 0L;
+            var result = new UploadResult { TotalFiles = files.Length };
 
             foreach (var file in files)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
+                if (token.IsCancellationRequested) break;
 
-                uploadedFiles++;
+                var relDir = Path.GetRelativePath(job.DownloadPath!, file.DirectoryName!);
+                var relPath = Path.GetRelativePath(job.DownloadPath!, file.FullName);
+                var folderId = folderMap.TryGetValue(relDir, out var fid) ? fid : folderMap["."];
 
-                // Get the relative path for this file's directory
-                var relativeDir = Path.GetRelativePath(job.DownloadPath!, file.DirectoryName!);
-                var relativePath = Path.GetRelativePath(job.DownloadPath!, file.FullName);
+                Logger.LogInformation("{LogPrefix} Uploading {File}", LogPrefix, file.Name);
 
-                // Get the target folder ID
-                if (!folderIdMap.TryGetValue(relativeDir, out var folderId))
+                // Check Drive First (Fallback if Redis was flushed)
+                var exists = await googleDriveService.CheckFileExistsAsync(folderId, file.Name, accessToken, token);
+                if (exists.IsSuccess && !string.IsNullOrEmpty(exists.Value))
                 {
-                    folderId = folderIdMap[""] ?? folderIdMap.Values.First();
+                    await progressContext.SetCompletedFileAsync(relPath, exists.Value);
+                    await progressContext.MarkFileCompletedAsync(file.Name, file.Length);
+                    continue;
                 }
 
-                Logger.LogInformation("{LogPrefix} Uploading file {Current}/{Total} | JobId: {JobId} | File: {File}",
-                    LogPrefix, uploadedFiles, totalFiles, job.Id, file.Name);
+                // Upload
+                var upload = await googleDriveService.UploadFileAsync(
+                    file.FullName, file.Name, folderId, accessToken, relPath, token);
 
-                // Upload file to Google Drive (progress is reported via context)
-                var uploadResult = await googleDriveService.UploadFileAsync(
-                    file.FullName,
-                    file.Name,
-                    folderId,
-                    accessToken,
-                    relativePath,
-                    cancellationToken);
-
-                if (uploadResult.IsFailure)
+                if (upload.IsSuccess)
                 {
-                    failedFiles++;
-                    Logger.LogError("{LogPrefix} Failed to upload file | JobId: {JobId} | File: {File} | Error: {Error}",
-                        LogPrefix, job.Id, file.Name, uploadResult.Error.Message);
-                    
-                    // Query upload status to get actual bytes uploaded before failure
-                    // This ensures progress accurately reflects partial uploads, not full file size
-                    var resumeUri = await progressContext.GetResumeUriAsync(relativePath);
-                    if (!string.IsNullOrEmpty(resumeUri))
-                    {
-                        var statusResult = await googleDriveService.QueryUploadStatusAsync(resumeUri, file.Length, accessToken, cancellationToken);
-                        if (statusResult.IsSuccess && statusResult.Value > 0)
-                        {
-                            // Mark only the bytes that were actually uploaded
-                            progressContext.MarkBytesCompleted(file.Name, statusResult.Value);
-                            Logger.LogWarning("{LogPrefix} Marked partial upload | JobId: {JobId} | File: {File} | BytesUploaded: {BytesMB:F2} MB / {TotalMB:F2} MB",
-                                LogPrefix, job.Id, file.Name, statusResult.Value / (1024.0 * 1024.0), file.Length / (1024.0 * 1024.0));
-                        }
-                        else
-                        {
-                            // No bytes uploaded or couldn't query status - mark as 0 bytes
-                            Logger.LogCritical("{LogPrefix} No bytes uploaded before failure | JobId: {JobId} | File: {File}",
-                                LogPrefix, job.Id, file.Name);
-                        }
-                    }
-                    else
-                    {
-                        // No resume URI means upload never started or failed immediately
-                        Logger.LogCritical("{LogPrefix} No resume URI found for failed file | JobId: {JobId} | File: {File}",
-                            LogPrefix, job.Id, file.Name);
-                    }
+                    await progressContext.SetCompletedFileAsync(relPath, upload.Value);
+                    await progressContext.MarkFileCompletedAsync(file.Name, file.Length);
                 }
                 else
                 {
-                    // Mark file as completed in progress context
-                    progressContext.MarkFileCompleted(file.Name, file.Length);
-                    
-                    // Record upload speed metrics
-                    var now = DateTime.UtcNow;
-                    var timeDelta = (now - lastUploadTime).TotalSeconds;
-                    if (timeDelta > 0)
+                    result.FailedFiles++;
+                    Logger.LogError("{LogPrefix} Upload failed for {File}: {Error}", LogPrefix, file.Name, upload.Error.Message);
+
+                    // Recover partial progress
+                    var resumeUri = await progressContext.GetResumeUriAsync(relPath);
+                    if (!string.IsNullOrEmpty(resumeUri))
                     {
-                        var bytesDelta = file.Length;
-                        var speed = bytesDelta / timeDelta;
-                        speedMetrics.RecordUploadSpeed(job.Id, job.UserId, "googledrive_upload", speed);
-                        lastUploadTime = now;
-                        lastUploadedBytes += bytesDelta;
+                        var status = await googleDriveService.QueryUploadStatusAsync(resumeUri, file.Length, accessToken, token);
+                        if (status.IsSuccess) await progressContext.MarkBytesCompletedAsync(file.Name, status.Value);
                     }
-                    
-                    Logger.LogInformation("{LogPrefix} File uploaded successfully | JobId: {JobId} | File: {File} | FileId: {FileId}",
-                        LogPrefix, job.Id, file.Name, uploadResult.Value);
                 }
             }
+            return result;
+        }
 
-            if (failedFiles > 0)
+        private async Task CreateSyncAndPublishToStreamAsync(UserJob job, long totalBytes, int filesCount)
+        {
+            try
             {
-                Logger.LogWarning("{LogPrefix} Upload completed with {FailedCount} failed files | JobId: {JobId}",
-                    LogPrefix, failedFiles, job.Id);
+                var sync = new SyncEntity
+                {
+                    JobId = job.Id,
+                    Status = SyncStatus.Pending,
+                    LocalFilePath = job.DownloadPath,
+                    S3KeyPrefix = $"torrents/{job.Id}",
+                    TotalBytes = totalBytes,
+                    FilesTotal = filesCount
+                };
+                UnitOfWork.Repository<SyncEntity>().Add(sync);
+                await UnitOfWork.Complete();
+
+                await redisStreamService.PublishAsync("sync:stream", new Dictionary<string, string>
+                {
+                    { "jobId", job.Id.ToString() },
+                    { "syncId", sync.Id.ToString() },
+                    { "downloadPath", job.DownloadPath! },
+                    { "createdAt", DateTime.UtcNow.ToString("O") }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "{LogPrefix} Sync trigger failed (Non-critical)", LogPrefix);
             }
         }
     }
