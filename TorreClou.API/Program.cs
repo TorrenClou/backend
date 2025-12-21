@@ -36,7 +36,12 @@ try
     builder.Services.AddHttpClient();
     // CORS
     builder.Services.AddCors(options => {
-
+        options.AddPolicy("Development",policy =>
+        {
+            policy.AllowAnyOrigin()
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        });
     });
 
     var app = builder.Build();

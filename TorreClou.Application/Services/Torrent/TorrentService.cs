@@ -1,5 +1,6 @@
 using MonoTorrent;
 using TorreClou.Core.DTOs.Torrents;
+using TorreClou.Core.Entities;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
@@ -95,6 +96,14 @@ namespace TorreClou.Application.Services.Torrent
 
         public async Task<Result<RequestedFile>> FindOrCreateTorrentFile(RequestedFile torrent, Stream? fileStream = null)
         {
+            // Validate that the user exists before proceeding
+            var user = await unitOfWork.Repository<User>().GetByIdAsync(torrent.UploadedByUserId);
+            if (user == null)
+            {
+                return Result<RequestedFile>.Failure("USER_NOT_FOUND", 
+                    $"User with ID {torrent.UploadedByUserId} does not exist. Cannot create RequestedFile.");
+            }
+
             // Check if this specific user has already uploaded this torrent
             var searchCriteria = new BaseSpecification<RequestedFile>(t =>
                 t.InfoHash == torrent.InfoHash &&
@@ -120,6 +129,9 @@ namespace TorreClou.Application.Services.Torrent
             }
 
             // LOGIC BRANCH 2: New Entity
+            // Note: We only set UploadedByUserId (foreign key), not the navigation property
+            // EF Core will use the foreign key value to establish the relationship
+
             // Upload to blob storage if stream provided
             if (fileStream != null)
             {
