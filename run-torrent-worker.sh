@@ -30,6 +30,8 @@ elif [ "$(docker ps -aq -f name=$CONTAINER_NAME)" ]; then
 fi
 
 # Check if image exists, if not, build it
+# Note: If you encounter build errors, rebuild with --no-cache flag:
+# docker build --no-cache -f TorreClou.Worker/Dockerfile -t $IMAGE_NAME .
 if ! docker images | grep -q "^$IMAGE_NAME "; then
     echo -e "${YELLOW}Image $IMAGE_NAME not found. Building it...${NC}"
     docker build -f TorreClou.Worker/Dockerfile -t $IMAGE_NAME .
