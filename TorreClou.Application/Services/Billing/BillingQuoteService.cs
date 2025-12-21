@@ -1,8 +1,5 @@
 ﻿using System.Text.Json;
-using System.Threading.Tasks;
 using TorreClou.Core.DTOs.Financal;
-using TorreClou.Core.Entities;
-using TorreClou.Core.Entities.Financals;
 using TorreClou.Core.Entities.Marketing;
 using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Enums;

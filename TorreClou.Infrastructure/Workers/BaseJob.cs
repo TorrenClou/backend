@@ -1,4 +1,3 @@
-using Hangfire.Common;
 using Microsoft.Extensions.Logging;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;

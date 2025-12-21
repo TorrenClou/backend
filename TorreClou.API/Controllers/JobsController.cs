@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 

@@ -1,5 +1,4 @@
-﻿using System.Threading.Tasks;
-using TorreClou.Core.DTOs.Storage;
+﻿using TorreClou.Core.DTOs.Storage;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;

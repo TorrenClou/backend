@@ -5,7 +5,6 @@ using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Entities.Marketing;
 using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Entities.Compliance;
-using TorreClou.Core.Enums;
 
 namespace TorreClou.Infrastructure.Data
 {

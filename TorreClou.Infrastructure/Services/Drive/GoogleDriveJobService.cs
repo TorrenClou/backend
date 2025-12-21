@@ -9,7 +9,6 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Options;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Entities.Jobs;
-using TorreClou.Core.DTOs.Storage.Google_Drive;
 
 namespace TorreClou.Infrastructure.Services.Drive
 {

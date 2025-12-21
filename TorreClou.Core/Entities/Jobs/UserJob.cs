@@ -1,8 +1,6 @@
 
 using TorreClou.Core.Enums;
-using TorreClou.Core.Entities;
 using TorreClou.Core.Entities.Torrents;
-using TorreClou.Core.Entities.Financals;
 using TorreClou.Core.Interfaces;
 
 namespace TorreClou.Core.Entities.Jobs

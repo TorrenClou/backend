@@ -3,7 +3,6 @@ using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Infrastructure.Workers;
-using TorreClou.GoogleDrive.Worker.Services; 
 using Hangfire;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;

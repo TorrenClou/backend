@@ -1,5 +1,4 @@
 using TorreClou.Core.Enums;
-using TorreClou.Core.Entities;
 
 namespace TorreClou.Core.Entities.Jobs
 {

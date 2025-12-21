@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using TorreClou.Core.Interfaces;
-using TorreClou.Infrastructure.Services.Redis; // Ensure namespace matches your RedisCacheService
 
 namespace TorreClou.Infrastructure.Services.Drive
 {

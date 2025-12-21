@@ -1,7 +1,5 @@
-using Hangfire;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Buffers; 
+using System.Buffers;
 using System.Text.Json;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
