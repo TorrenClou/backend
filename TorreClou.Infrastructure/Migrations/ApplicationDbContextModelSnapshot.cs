@@ -179,7 +179,7 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Deposit");
+                    b.ToTable("Deposits");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Financals.WalletTransaction", b =>
@@ -318,8 +318,14 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<int>("FilesTotal")
                         .HasColumnType("integer");
 
+                    b.Property<string>("HangfireJobId")
+                        .HasColumnType("text");
+
                     b.Property<int>("JobId")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastHeartbeat")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("LocalFilePath")
                         .HasColumnType("text");
@@ -509,7 +515,7 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("FlashSale");
+                    b.ToTable("FlashSales");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Marketing.UserVoucherUsage", b =>
@@ -541,7 +547,7 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasIndex("VoucherId");
 
-                    b.ToTable("UserVoucherUsage");
+                    b.ToTable("UserVoucherUsages");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Marketing.Voucher", b =>
@@ -586,7 +592,7 @@ namespace TorreClou.Infrastructure.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Voucher");
+                    b.ToTable("Vouchers");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Torrents.RequestedFile", b =>
@@ -630,10 +636,10 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InfoHash")
-                        .IsUnique();
-
                     b.HasIndex("UploadedByUserId");
+
+                    b.HasIndex("InfoHash", "UploadedByUserId")
+                        .IsUnique();
 
                     b.ToTable("RequestedFiles");
                 });
