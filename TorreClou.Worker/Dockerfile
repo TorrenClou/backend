@@ -3,11 +3,9 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 # Copy solution and project files for dependency restoration
-COPY TorreClou.sln .
 COPY TorreClou.Core/TorreClou.Core.csproj TorreClou.Core/
 COPY TorreClou.Application/TorreClou.Application.csproj TorreClou.Application/
 COPY TorreClou.Infrastructure/TorreClou.Infrastructure.csproj TorreClou.Infrastructure/
-COPY TorreClou.API/TorreClou.API.csproj TorreClou.API/
 COPY TorreClou.Worker/TorreClou.Worker.csproj TorreClou.Worker/
 
 # Restore dependencies for the Torrent Worker project

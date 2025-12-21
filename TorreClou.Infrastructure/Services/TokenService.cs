@@ -22,7 +22,8 @@ namespace TorreClou.Infrastructure.Services
             };
 
             // 2. Key & Signature
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]));
+            var jwtKey = config["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key configuration is missing");
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256Signature);
 
             // 3. Create Token
