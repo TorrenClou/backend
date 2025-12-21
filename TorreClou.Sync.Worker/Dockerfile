@@ -2,29 +2,28 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy solution and project files for dependency restoration
-COPY TorreClou.sln .
+# Copy ONLY the project files we need (no solution file, no other workers)
 COPY TorreClou.Core/TorreClou.Core.csproj TorreClou.Core/
 COPY TorreClou.Application/TorreClou.Application.csproj TorreClou.Application/
 COPY TorreClou.Infrastructure/TorreClou.Infrastructure.csproj TorreClou.Infrastructure/
 COPY TorreClou.Sync.Worker/TorreClou.Sync.Worker.csproj TorreClou.Sync.Worker/
 
-# Restore dependencies for the Sync Worker project
-# This will automatically restore all project dependencies
+# Restore dependencies for the Sync Worker project only
 WORKDIR /src/TorreClou.Sync.Worker
 RUN dotnet restore TorreClou.Sync.Worker.csproj
 WORKDIR /src
 
-# Copy all source code
+# Copy all source code (excluding solution file via .dockerignore)
 COPY TorreClou.Core/ TorreClou.Core/
 COPY TorreClou.Application/ TorreClou.Application/
 COPY TorreClou.Infrastructure/ TorreClou.Infrastructure/
 COPY TorreClou.Sync.Worker/ TorreClou.Sync.Worker/
 
 # Build and publish
+# Explicitly build only this project, ignoring any solution file that might be present
 WORKDIR /src/TorreClou.Sync.Worker
-RUN dotnet build -c Release --no-restore -o /app/build
-RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
+RUN dotnet build TorreClou.Sync.Worker.csproj -c Release --no-restore -o /app/build /p:BuildProjectReferences=true /p:SolutionDir=
+RUN dotnet publish TorreClou.Sync.Worker.csproj -c Release --no-restore -o /app/publish /p:UseAppHost=false /p:SolutionDir=
 
 # Stage 2: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
