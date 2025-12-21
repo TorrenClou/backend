@@ -256,10 +256,6 @@ namespace TorreClou.Application.Services
             if (originalAmountInUsd <= 0)
                 return Result<Invoice>.Failure("INVALID_AMOUNT", "Amount must be positive.");
 
-            // Detach the RequestedFile entity from the change tracker to prevent EF Core
-            // from trying to re-insert/update it when saving the Invoice
-            unitOfWork.Detach(torrentFile);
-
             var exchangeRate = 1.0m;
             var finalAmountUsd = originalAmountInUsd;
 
@@ -288,10 +284,8 @@ namespace TorreClou.Application.Services
                 PricingSnapshotJson = JsonSerializer.Serialize(pricingSnapshot),
                 ExpiresAt = DateTime.UtcNow.AddMinutes(30),
                 VoucherId = voucher?.Id,
-
-                // CRITICAL FIX: Set ID directly to prevent EF Core from trying to re-insert the TorrentFile
-                TorrentFileId = torrentFile.Id
-                // Do NOT set TorrentFile = torrentFile here
+                TorrentFileId = torrentFile.Id,
+                TorrentFile = null // Explicitly set to null to prevent EF Core from trying to insert a new RequestedFile
             };
 
             unitOfWork.Repository<Invoice>().Add(invoice);

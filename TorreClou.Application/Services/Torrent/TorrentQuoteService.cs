@@ -85,6 +85,12 @@ namespace TorreClou.Application.Services.Torrent
             var invoice = quotePricing.Invoice;
             var snapshot = quotePricing.Snapshot;
 
+            // Ensure TorrentFile is loaded
+            if (invoice.TorrentFile == null)
+            {
+                return Result<QuoteResponseDto>.Failure("TORRENT_FILE_NOT_LOADED", "Torrent file information is missing from invoice.");
+            }
+
             // 7. Return Response
             return Result.Success(new QuoteResponseDto
             {
