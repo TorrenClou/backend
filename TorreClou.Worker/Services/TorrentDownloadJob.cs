@@ -1,17 +1,12 @@
 ﻿using Hangfire;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MonoTorrent;
-using MonoTorrent.BEncoding;
 using MonoTorrent.Client;
-using System.Diagnostics;
-using System.Threading.RateLimiting;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Core.Specifications;
-using TorreClou.Infrastructure.Services;
 using TorreClou.Infrastructure.Settings;
 using TorreClou.Infrastructure.Workers;
 

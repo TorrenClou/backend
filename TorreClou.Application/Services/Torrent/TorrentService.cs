@@ -1,4 +1,3 @@
-using MonoTorrent;
 using TorreClou.Core.DTOs.Torrents;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Interfaces;

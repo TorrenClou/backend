@@ -1,9 +1,7 @@
 using StackExchange.Redis;
-using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Infrastructure.Workers;
-using TorreClou.Sync.Worker.Services;
 using Hangfire;
 using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
 using TorreClou.Core.Interfaces.Hangfire;

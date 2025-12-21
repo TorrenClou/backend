@@ -12,7 +12,6 @@ using TorreClou.Infrastructure.Repositories;
 using TorreClou.Infrastructure.Interceptors;
 using TorreClou.Infrastructure.Services.Redis;
 using TorreClou.Core.Interfaces;
-using Serilog.Core;
 
 namespace TorreClou.Infrastructure.Extensions
 {

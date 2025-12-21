@@ -1,4 +1,3 @@
-using Hangfire.Common;
 using Hangfire.States;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

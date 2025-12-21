@@ -1,6 +1,5 @@
 ﻿using TorreClou.Core.DTOs.Auth;
 using TorreClou.Core.Entities;
-using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;

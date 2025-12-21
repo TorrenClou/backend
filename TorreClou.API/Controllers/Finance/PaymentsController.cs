@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using TorreClou.Core.DTOs.Financal;
 using TorreClou.Core.DTOs.Payments;
 using TorreClou.Core.Interfaces;
 
