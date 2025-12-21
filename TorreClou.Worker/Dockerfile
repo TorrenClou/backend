@@ -9,7 +9,6 @@ COPY TorreClou.Application/TorreClou.Application.csproj TorreClou.Application/
 COPY TorreClou.Infrastructure/TorreClou.Infrastructure.csproj TorreClou.Infrastructure/
 COPY TorreClou.API/TorreClou.API.csproj TorreClou.API/
 COPY TorreClou.Worker/TorreClou.Worker.csproj TorreClou.Worker/
-COPY TorreClou.GoogleDrive.Worker/TorreClou.GoogleDrive.Worker.csproj TorreClou.GoogleDrive.Worker/
 
 # Restore dependencies for the Torrent Worker project
 # This will automatically restore all project dependencies
@@ -22,7 +21,6 @@ COPY TorreClou.Core/ TorreClou.Core/
 COPY TorreClou.Application/ TorreClou.Application/
 COPY TorreClou.Infrastructure/ TorreClou.Infrastructure/
 COPY TorreClou.Worker/ TorreClou.Worker/
-COPY TorreClou.GoogleDrive.Worker/ TorreClou.GoogleDrive.Worker/
 
 # Build and publish
 WORKDIR /src/TorreClou.Worker
