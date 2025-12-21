@@ -25,17 +25,25 @@ namespace TorreClou.API.Extensions
             var lokiUser = configuration["Observability:LokiUsername"] ?? Environment.GetEnvironmentVariable("LOKI_USERNAME");
             var lokiKey = configuration["Observability:LokiApiKey"] ?? Environment.GetEnvironmentVariable("LOKI_API_KEY");
 
+            var isDevelopment = environment?.Equals("Development", StringComparison.OrdinalIgnoreCase) == true;
+            
+            // Start with configuration (which includes Console sink), then override levels for development
             var loggerConfig = new LoggerConfiguration()
                 .ReadFrom.Configuration(configuration)
-                .MinimumLevel.Information()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .MinimumLevel.Is(isDevelopment ? LogEventLevel.Debug : LogEventLevel.Information)
+                .MinimumLevel.Override("Microsoft", isDevelopment ? LogEventLevel.Information : LogEventLevel.Warning)
+                .MinimumLevel.Override("Microsoft.AspNetCore", isDevelopment ? LogEventLevel.Information : LogEventLevel.Warning)
+                .MinimumLevel.Override("Microsoft.AspNetCore.Hosting", isDevelopment ? LogEventLevel.Information : LogEventLevel.Warning)
+                .MinimumLevel.Override("Microsoft.AspNetCore.Routing", isDevelopment ? LogEventLevel.Information : LogEventLevel.Warning)
                 .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+                .MinimumLevel.Override("System", LogEventLevel.Warning)
                 .Enrich.FromLogContext()
                 .Enrich.WithMachineName()
                 .Enrich.WithThreadId()
                 .Enrich.WithProperty("service", serviceName)
-                .Enrich.WithProperty("environment", environment)
-                .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}");
+                .Enrich.WithProperty("environment", environment);
+            
+            // Note: Console sink is already configured in appsettings, so we don't add it again here
 
             if (!string.IsNullOrEmpty(lokiUrl) && !lokiUrl.Contains("localhost"))
             {

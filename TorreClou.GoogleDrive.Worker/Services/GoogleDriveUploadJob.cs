@@ -25,7 +25,6 @@ namespace TorreClou.GoogleDrive.Worker.Services
         IRedisLockService redisLockService,
         IRedisStreamService redisStreamService) : BaseJob<GoogleDriveUploadJob>(unitOfWork, logger), IGoogleDriveUploadJob
     {
-        private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
         protected override string LogPrefix => "[GOOGLE_DRIVE:UPLOAD]";
 
@@ -168,7 +167,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             var folderIdMap = await CreateFolderHierarchyAsync(filesToProcess.ToArray(), job.DownloadPath, rootFolderId, accessToken, cancellationToken);
 
             // 9. Upload Files
-            var result = await UploadFilesAsync(job, filesToProcess.ToArray(), folderIdMap, accessToken, cancellationToken);
+            var result = await UploadFilesAsync(job, [.. filesToProcess], folderIdMap, accessToken, cancellationToken);
 
             // 10. Finalize Job
             if (!result.AllFilesUploaded)
