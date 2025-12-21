@@ -105,15 +105,18 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 return;
             }
 
-            // 3. Get Auth Token
+            // 3. Get Auth Token (always refresh to prevent mid-job expiration)
             await UpdateHeartbeatAsync(job, "Authenticating...");
-            var tokenResult = await googleDriveService.GetAccessTokenAsync(job.StorageProfile.CredentialsJson, cancellationToken);
+            var tokenResult = await googleDriveService.GetAccessTokenAsync(job.StorageProfile, cancellationToken);
             if (tokenResult.IsFailure)
             {
                 await MarkJobFailedAsync(job, $"Auth failed: {tokenResult.Error.Message}");
                 return;
             }
-            var accessToken = job.StorageProfile.CredentialsJson;
+            var accessToken = tokenResult.Value;
+            
+            // Token refresh has already persisted changes, but ensure we save any other job updates
+            await UnitOfWork.Complete();
 
             // 4. Get Files (Using CORRECTED Filter Logic)
             var filesToUpload = GetFilesToUpload(job.DownloadPath);

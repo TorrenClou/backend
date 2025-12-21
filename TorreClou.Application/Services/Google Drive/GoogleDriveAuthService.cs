@@ -130,6 +130,18 @@ namespace TorreClou.Application.Services
                     return Result<int>.Failure("TOKEN_EXCHANGE_FAILED", "Failed to exchange authorization code for tokens");
                 }
 
+                // Validate that refresh token is present (critical for long-running jobs)
+                if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
+                {
+                    logger.LogWarning("OAuth token exchange succeeded but no refresh token received for user {UserId}. This may cause authentication issues for long-running jobs.", userId);
+                    // Note: Google only returns refresh token on first authorization or when prompt=consent is used
+                    // We already have prompt=consent in the auth URL, so this should not happen
+                }
+                else
+                {
+                    logger.LogInformation("Refresh token received successfully for user {UserId}", userId);
+                }
+
                 // Fetch user info (email) from Google
                 var userInfo = await GetUserInfoAsync(tokenResponse.AccessToken);
                 string? email = null;
@@ -234,6 +246,16 @@ namespace TorreClou.Application.Services
                 };
 
                 profile.CredentialsJson = JsonSerializer.Serialize(credentials);
+                
+                // Validate refresh token was saved
+                if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
+                {
+                    logger.LogError("CRITICAL: Refresh token is missing from token response. Profile {ProfileId} will not be able to refresh tokens automatically.", profile.Id);
+                }
+                else
+                {
+                    logger.LogInformation("Credentials saved successfully for profile {ProfileId} with refresh token present.", profile.Id);
+                }
 
                 // If this is the first profile or user wants it as default, set it
                 var defaultProfileSpec = new BaseSpecification<UserStorageProfile>(
@@ -291,7 +313,22 @@ namespace TorreClou.Application.Services
                 }
 
                 var jsonResponse = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<TokenResponse>(jsonResponse);
+                var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(jsonResponse);
+                
+                // Log token exchange result
+                if (tokenResponse != null)
+                {
+                    if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
+                    {
+                        logger.LogWarning("Token exchange response missing refresh_token. Access token expires in {ExpiresIn} seconds.", tokenResponse.ExpiresIn);
+                    }
+                    else
+                    {
+                        logger.LogInformation("Token exchange successful. Access token expires in {ExpiresIn} seconds. Refresh token present.", tokenResponse.ExpiresIn);
+                    }
+                }
+                
+                return tokenResponse;
             }
             catch (Exception ex)
             {
