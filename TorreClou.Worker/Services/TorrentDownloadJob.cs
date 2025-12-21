@@ -283,7 +283,7 @@ namespace TorreClou.Worker.Services
                     
                     // Record final download metrics
                     var duration = (DateTime.UtcNow - downloadStartTime).TotalSeconds;
-                    speedMetrics.RecordDownloadComplete(job.Id, job.UserId, "torrent_download", actualDownloaded, duration);
+                    speedMetrics.RecordDownloadComplete(job.Id, job.UserId, "torrent_download", actualBytesDownloaded, duration);
                     
                     await SaveEngineStateAsync(engine, "completion");
                     return true;
