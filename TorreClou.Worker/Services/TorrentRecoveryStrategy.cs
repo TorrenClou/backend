@@ -3,7 +3,6 @@ using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Interfaces.Hangfire;
-using TorreClou.GoogleDrive.Worker.Services;
 using TorreClou.Worker.Services;
 
 namespace TorreClou.Worker.Services.Strategies
@@ -42,7 +41,7 @@ namespace TorreClou.Worker.Services.Strategies
                 return provider switch
                 {
                     StorageProviderType.GoogleDrive =>
-                        client.Enqueue<GoogleDriveUploadJob>(x => x.ExecuteAsync(job.Id, CancellationToken.None)),
+                        client.Enqueue<IGoogleDriveUploadJob>(x => x.ExecuteAsync(job.Id, CancellationToken.None)),
 
                     // Future: StorageProviderType.S3 => client.Enqueue<S3UploadJob>(...)
 
