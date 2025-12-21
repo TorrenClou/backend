@@ -85,6 +85,7 @@ namespace TorreClou.Application.Services.Torrent
                     })],
                     HealthScore = health.HealthScore,
                     HealthMultiplier = healthMultiplier,
+                    Health = health,
                     ScrapeResult = scrape
                 };
 

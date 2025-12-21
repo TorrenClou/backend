@@ -12,7 +12,8 @@ namespace TorreClou.Application.Services.Torrent
         IUnitOfWork unitOfWork,
         ITorrentService torrentService,
         IQuotePricingService quotePricingService,
-        IStorageProfilesService storageProfilesService
+        IStorageProfilesService storageProfilesService,
+        IUserService userService
         ) : ITorrentQuoteService 
     {
         public async Task<Result<QuoteResponseDto>> GenerateQuoteAsync(QuoteRequestDto request, int userId, Stream torrentFile)
@@ -42,7 +43,7 @@ namespace TorreClou.Application.Services.Torrent
             long totalSizeInBytes = totalSizeResult.Value;
 
             // 3. Get User for Regional Pricing
-            var user = await unitOfWork.Repository<User>().GetByIdAsync(userId);
+            var user = await userService.GetActiveUserById(userId);
             if (user == null)
                 return Result<QuoteResponseDto>.Failure("USER_NOT_FOUND", "User not found.");
 
