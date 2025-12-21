@@ -39,6 +39,9 @@ namespace TorreClou.Infrastructure.Data
         {
             base.OnModelCreating(builder);
 
+            // Set default schema to 'dev'
+            builder.HasDefaultSchema("dev");
+
             // --- User Configuration ---
             builder.Entity<User>()
                 .HasIndex(u => u.Email).IsUnique();
