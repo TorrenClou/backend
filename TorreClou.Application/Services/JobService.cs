@@ -212,14 +212,9 @@ namespace TorreClou.Application.Services
 
         public async Task<Result<IReadOnlyList<UserJob>>> GetActiveJobsByStorageProfileIdAsync(int storageProfileId)
         {
-         
-            var spec = new BaseSpecification<UserJob>(j =>
-                j.StorageProfileId == storageProfileId &&
-                j.Status.IsActive()
-            );
-            var activeJobs = await  unitOfWork.Repository<UserJob>().ListAsync(spec);
+            var spec = new ActiveJobsByStorageProfileSpecification(storageProfileId);
+            var activeJobs = await unitOfWork.Repository<UserJob>().ListAsync(spec);
             return Result.Success(activeJobs);
-
         }
     }
 }
