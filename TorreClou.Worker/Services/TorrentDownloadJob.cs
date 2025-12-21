@@ -396,6 +396,7 @@ namespace TorreClou.Worker.Services
                 job.Status = JobStatus.PENDING_UPLOAD;
                 job.CurrentState = "Download complete. Starting  upload...";
                 job.BytesDownloaded = job.TotalBytes;
+                job.HangfireJobId = null; // Clear Hangfire job ID for next step
                 await UnitOfWork.Complete();
 
                 Logger.LogInformation("{LogPrefix} Publishing to upload stream | JobId: {JobId} | Provider: {Provider}", 

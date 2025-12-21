@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using TorreClou.Core.Shared;
+using TorreClou.Core.Enums;
 
 namespace TorreClou.API.Controllers;
 
@@ -21,6 +22,21 @@ public abstract class BaseApiController : ControllerBase
     /// Gets the authenticated user's email from claims.
     /// </summary>
     protected string? UserEmail => User.FindFirst(ClaimTypes.Email)?.Value;
+
+    /// <summary>
+    /// Gets the authenticated user's role from claims.
+    /// </summary>
+    protected UserRole UserRole
+    {
+        get
+        {
+            var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value;
+            if (string.IsNullOrEmpty(roleClaim))
+                return UserRole.User; // Default to User if role not found
+            
+            return Enum.TryParse<UserRole>(roleClaim, out var role) ? role : UserRole.User;
+        }
+    }
 
     /// <summary>
     /// Handles a Result object and returns the appropriate IActionResult.

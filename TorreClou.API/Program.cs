@@ -18,7 +18,7 @@ try
 
     // 1. Shared Serilog Setup
     builder.Configuration.ConfigureSharedSerilog(ServiceName, builder.Environment.EnvironmentName);
-    builder.Host.UseSerilog();
+    builder.Host.UseSerilog(); // Clear default providers to avoid duplication
 
     // 2. Shared Infrastructure (DB, Redis, Repos, OpenTelemetry)
     builder.Services.AddSharedDatabase(builder.Configuration);
@@ -34,6 +34,15 @@ try
     builder.Services.AddApiServices(builder.Configuration);
     builder.Services.AddIdentityServices(builder.Configuration);
     builder.Services.AddHttpClient();
+    
+    // Enable HTTP logging in development
+    if (builder.Environment.IsDevelopment())
+    {
+        builder.Services.AddHttpLogging(options =>
+        {
+            options.LoggingFields = Microsoft.AspNetCore.HttpLogging.HttpLoggingFields.All;
+        });
+    }
     // CORS
     builder.Services.AddCors(options => {
         options.AddPolicy("Development",policy =>
@@ -49,6 +58,14 @@ try
     // --- Middleware ---
     if (app.Environment.IsDevelopment())
     {
+        app.UseHttpLogging(); // Enable HTTP request logging in development (must be early in pipeline)
+    }
+    
+    app.UseExceptionHandler();
+    app.UseHttpsRedirection();
+    
+    if (app.Environment.IsDevelopment())
+    {
         app.MapOpenApi();
         app.MapScalarApiReference();
         app.UseCors("Development");
@@ -58,9 +75,6 @@ try
         app.UseCors("Production");
         app.UseHsts();
     }
-
-    app.UseExceptionHandler();
-    app.UseHttpsRedirection();
     app.UseAuthentication();
     app.UseAuthorization();
 
