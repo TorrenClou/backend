@@ -35,7 +35,7 @@ public class Invoice : BaseEntity
     public int? VoucherId { get; set; }
 
     public int TorrentFileId { get; set; }
-    public RequestedFile TorrentFile { get; set; } = new();
+    public RequestedFile? TorrentFile { get; set; }
 
     public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddMinutes(15);
 
