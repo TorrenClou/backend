@@ -132,15 +132,14 @@ namespace TorreClou.Worker.Services
                         await UnitOfWork.Complete();
                     }
 
-
-
-                var downloadedBytesApprox = (long)Math.Round(job.TotalBytes * (progress / 100.0));
-                var remainingBytesApprox = Math.Max(0, job.TotalBytes - downloadedBytesApprox);
+                var actualBytesDownloaded = (long)(downloadableSize * (progress / 100.0));
+                job.BytesDownloaded = actualBytesDownloaded;
+                var remainingBytesApprox = Math.Max(0, job.TotalBytes - actualBytesDownloaded);
 
                
 
                 Logger.LogInformation("{LogPrefix} Download started | JobId: {JobId} | Initial State: {State} | ResumedBytes: {ResumedBytes} | Progress: {Progress}%", 
-                    LogPrefix, job.Id, manager.State, downloadedBytesApprox, manager.Progress);
+                    LogPrefix, job.Id, manager.State, actualBytesDownloaded, manager.Progress);
 
                 // 7. Monitor download progress
                 var success = await MonitorDownloadAsync(job, _engine, manager, cancellationToken);
@@ -268,14 +267,14 @@ namespace TorreClou.Worker.Services
             var lastDbUpdate = DateTime.MinValue;
             var lastLoggedBytes = 0L;
             var lastLogTime = DateTime.UtcNow;
-            const long LogThresholdBytes = 1024 * 1024 *2; // Log every 2 MB
+            const long LogThresholdBytes = 1024 * 1024 * 100; // Log every 100 MB
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 var now = DateTime.UtcNow;
-
+                
                 // Update progress metrics
-                var actualDownloaded = manager.Monitor.DataBytesReceived;
+                var actualBytesDownloaded = (long)(job.TotalBytes * (manager.Progress / 100.0));
 
                 // Check for completion
                 if (manager.Progress >= 100.0 || manager.State == TorrentState.Seeding)
@@ -302,31 +301,32 @@ namespace TorreClou.Worker.Services
                     return false;
                 }
 
-                // Log progress every 1 MB
-                if (actualDownloaded - lastLoggedBytes >= LogThresholdBytes)
+                // Log progress every 100 MB
+                if (actualBytesDownloaded - lastLoggedBytes >= LogThresholdBytes)
                 {
-                    var speed = (actualDownloaded - lastLoggedBytes) / (now - lastLogTime).TotalSeconds;
+                    var speed = (actualBytesDownloaded - lastLoggedBytes) / (now - lastLogTime).TotalSeconds;
+                   
                     Logger.LogInformation(
                         "{LogPrefix} Progress | JobId: {JobId} | {State} | {Progress:F2}% | {DownloadedMB:F2}/{TotalMB:F2} MB | Speed: {SpeedMBps:F2} MB/s",
                         LogPrefix,
                         job.Id,
                         manager.State,
                         manager.Progress,
-                        actualDownloaded / (1024.0 * 1024.0),
+                        actualBytesDownloaded / (1024.0 * 1024.0),
                         job.TotalBytes / (1024.0 * 1024.0),
                         speed / (1024.0 * 1024.0));
 
                     // Record speed metrics
                     speedMetrics.RecordDownloadSpeed(job.Id, job.UserId, "torrent_download", speed);
 
-                    lastLoggedBytes = actualDownloaded;
+                    lastLoggedBytes = actualBytesDownloaded;
                     lastLogTime = now;
                 }
 
                 // Update database every 5 seconds
                 if ((now - lastDbUpdate) >= DbUpdateInterval)
                 {
-                    await UpdateJobProgressAsync(job, manager, actualDownloaded);
+                    await UpdateJobProgressAsync(job, manager, actualBytesDownloaded);
                     lastDbUpdate = now;
                 }
 
@@ -374,7 +374,7 @@ namespace TorreClou.Worker.Services
             try
             {
                 await engine.SaveStateAsync();
-                Logger.LogDebug("{LogPrefix} FastResume saved | Reason: {Reason}", LogPrefix, reason);
+                Logger.LogInformation("{LogPrefix} FastResume saved | Reason: {Reason}", LogPrefix, reason);
             }
             catch (Exception ex)
             {
