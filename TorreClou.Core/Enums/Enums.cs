@@ -24,9 +24,25 @@
         Failed,    // الفيزا اترفضا
         Expired    // اللينك مدته انتهت
     }
-    public enum JobStatus { QUEUED, PROCESSING, UPLOADING, COMPLETED, FAILED, CANCELLED }
+    public enum JobStatus 
+    { 
+        QUEUED, 
+        DOWNLOADING, 
+        SYNCING, 
+        PENDING_UPLOAD, 
+        UPLOADING, 
+        TORRENT_DOWNLOAD_RETRY, 
+        UPLOAD_RETRY, 
+        SYNC_RETRY, 
+        COMPLETED, 
+        FAILED, 
+        CANCELLED, 
+        TORRENT_FAILED, 
+        UPLOAD_FAILED, 
+        GOOGLE_DRIVE_FAILED 
+    }
 
-    public enum JobType { Torrent, Other }
+    public enum JobType { Torrent,  Sync}
 
     public enum ViolationType
     {
@@ -35,5 +51,22 @@
         TermsViolation,
         CopyrightInfringement,
         Other
+    }
+
+    public enum SyncProgressStatus
+    {
+        NotStarted,
+        InProgress,
+        Completed,
+        Failed
+    }
+
+    public enum SyncStatus
+    {
+        Pending,      // Created but not started
+        InProgress,   // Currently syncing
+        Completed,   // All files synced successfully
+        Failed,       // Sync failed
+        Retrying      // Retrying after failure
     }
 }

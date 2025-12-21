@@ -11,8 +11,11 @@ COPY TorreClou.API/TorreClou.API.csproj TorreClou.API/
 COPY TorreClou.Worker/TorreClou.Worker.csproj TorreClou.Worker/
 COPY TorreClou.GoogleDrive.Worker/TorreClou.GoogleDrive.Worker.csproj TorreClou.GoogleDrive.Worker/
 
-# Restore dependencies
-RUN dotnet restore TorreClou.sln
+# Restore dependencies for the Torrent Worker project
+# This will automatically restore all project dependencies
+WORKDIR /src/TorreClou.Worker
+RUN dotnet restore TorreClou.Worker.csproj
+WORKDIR /src
 
 # Copy all source code
 COPY TorreClou.Core/ TorreClou.Core/
@@ -29,20 +32,25 @@ RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
+# Create mount points for block storage
+RUN mkdir -p /mnt/torrents /mnt/backblaze
+
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Copy published output
 COPY --from=build /app/publish .
 
+# Copy entrypoint script
+COPY TorreClou.Worker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Set environment variables
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app /mnt/backblaze /mnt/torrents
 
-# Switch to non-root user
-USER appuser
 
 # Set entry point
-ENTRYPOINT ["dotnet", "TorreClou.Worker.dll"]
+ENTRYPOINT ["/entrypoint.sh"]

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using StackExchange.Redis;
 using TorreClou.Core.DTOs.Common;
 using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.Entities.Jobs;
@@ -8,12 +7,12 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Models.Pricing;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
-
+using TorreClou.Core.Extensions;
 namespace TorreClou.Application.Services
 {
     public class JobService(
         IUnitOfWork unitOfWork,
-        IConnectionMultiplexer redis) : IJobService
+        IRedisStreamService redisStreamService) : IJobService
     {
         private const string JobStreamKey = "jobs:stream";
 
@@ -24,28 +23,41 @@ namespace TorreClou.Application.Services
             invoiceSpec.AddInclude(i => i.TorrentFile);
             var invoice = await unitOfWork.Repository<Invoice>().GetEntityWithSpec(invoiceSpec);
 
-            if (invoice == null)
-                return Result<JobCreationResult>.Failure("INVOICE_NOT_FOUND", "Invoice not found.");
+            if (invoice == null) return Result<JobCreationResult>.Failure("INVOICE_NOT_FOUND", "Invoice not found.");
+            if (invoice.PaidAt == null) return Result<JobCreationResult>.Failure("INVOICE_NOT_PAID", "Invoice has not been paid.");
+            if (invoice.JobId != null) return Result<JobCreationResult>.Failure("JOB_ALREADY_EXISTS", "A job has already been created for this invoice.");
 
-            if (invoice.PaidAt == null)
-                return Result<JobCreationResult>.Failure("INVOICE_NOT_PAID", "Invoice has not been paid.");
 
-            if (invoice.JobId != null)
-                return Result<JobCreationResult>.Failure("JOB_ALREADY_EXISTS", "A job has already been created for this invoice.");
+            // 1.5. Check for existing active jobs (REFACTORED)
 
-            // 2. Find user's default StorageProfile
-            var storageProfileSpec = new BaseSpecification<UserStorageProfile>(
-                sp => sp.UserId == userId && sp.IsDefault && sp.IsActive
+            var existingJobSpec = new BaseSpecification<UserJob>(j =>
+                j.UserId == userId &&
+                j.RequestFileId == invoice.TorrentFileId &&
+                (j.Status != JobStatus.COMPLETED && j.Status != JobStatus.FAILED && j.Status != JobStatus.CANCELLED &&
+                 j.Status != JobStatus.TORRENT_FAILED && j.Status != JobStatus.UPLOAD_FAILED && j.Status != JobStatus.GOOGLE_DRIVE_FAILED)
             );
-            var defaultStorageProfile = await unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(storageProfileSpec);
 
-            bool hasStorageProfileWarning = defaultStorageProfile == null;
-            string? warningMessage = hasStorageProfileWarning
-                ? "No default storage profile configured. Please set up a storage profile to receive your files."
-                : null;
+            var existingJob = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(existingJobSpec);
 
-            // 3. Extract SelectedFileIndices from PricingSnapshot
-            var selectedFileIndices = ExtractSelectedFilesFromSnapshot(invoice.PricingSnapshotJson);
+            if (existingJob != null)
+            {
+                // Use Extensions for readable business logic
+                if (existingJob.Status.IsRetrying())
+                {
+                    var nextRetry = existingJob.NextRetryAt.HasValue
+                        ? $" Next retry: {existingJob.NextRetryAt.Value:u}" : "";
+                    return Result<JobCreationResult>.Failure("JOB_RETRYING",
+                        $"Job {existingJob.Id} is currently retrying.{nextRetry}");
+                }
+
+                return Result<JobCreationResult>.Failure("JOB_ALREADY_EXISTS",
+                    $"Active job exists. ID: {existingJob.Id}, Status: {existingJob.Status}");
+            }
+            var defualtStorageProfileSpec = new BaseSpecification<UserStorageProfile>(sp => sp.UserId == userId && sp.IsDefault && sp.IsActive );
+            var defaultStorageProfile = await unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(defualtStorageProfileSpec);
+            if (defaultStorageProfile == null)
+                return Result< JobCreationResult>.Failure("NO_STORAGE", "You don't have any stored or active Storage Destenation");
+
 
             // 4. Create UserJob
             var job = new UserJob
@@ -55,35 +67,32 @@ namespace TorreClou.Application.Services
                 Status = JobStatus.QUEUED,
                 Type = JobType.Torrent,
                 RequestFileId = invoice.TorrentFileId,
-                SelectedFileIndices = selectedFileIndices
+                SelectedFileIndices = ExtractSelectedFilesFromSnapshot(invoice.PricingSnapshotJson)
             };
 
             unitOfWork.Repository<UserJob>().Add(job);
             await unitOfWork.Complete();
 
-            // 5. Link Invoice to Job
+            // 5. Link Invoice
             invoice.JobId = job.Id;
             await unitOfWork.Complete();
 
-            // 6. Publish to Redis Stream (guaranteed delivery)
-            var db = redis.GetDatabase();
-            await db.StreamAddAsync(JobStreamKey, [
-                new NameValueEntry("jobId", job.Id.ToString()),
-                new NameValueEntry("userId", userId.ToString()),
-                new NameValueEntry("jobType", job.Type.ToString()),
-                new NameValueEntry("createdAt", DateTime.UtcNow.ToString("O"))
-            ]);
+            // 6. Publish to Stream
+            await redisStreamService.PublishAsync(JobStreamKey, new Dictionary<string, string>
+            {
+                { "jobId", job.Id.ToString() },
+                { "userId", userId.ToString() },
+                { "jobType", job.Type.ToString() },
+                { "createdAt", DateTime.UtcNow.ToString("O") }
+            });
 
             return Result.Success(new JobCreationResult
             {
                 JobId = job.Id,
                 InvoiceId = invoiceId,
                 StorageProfileId = defaultStorageProfile?.Id,
-                HasStorageProfileWarning = hasStorageProfileWarning,
-                StorageProfileWarningMessage = warningMessage
             });
         }
-
         public async Task<Result<PaginatedResult<JobDto>>> GetUserJobsAsync(int userId, int pageNumber, int pageSize, JobStatus? status = null)
         {
             var spec = new UserJobsSpecification(userId, pageNumber, pageSize, status);
@@ -97,7 +106,7 @@ namespace TorreClou.Application.Services
                 Id = job.Id,
                 StorageProfileId = job.StorageProfileId,
                 StorageProfileName = job.StorageProfile?.ProfileName,
-                Status = job.Status.ToString(),
+                Status = job.Status,
                 Type = job.Type.ToString(),
                 RequestFileId = job.RequestFileId,
                 RequestFileName = job.RequestFile?.FileName,
@@ -140,7 +149,7 @@ namespace TorreClou.Application.Services
                 Id = job.Id,
                 StorageProfileId = job.StorageProfileId,
                 StorageProfileName = job.StorageProfile?.ProfileName,
-                Status = job.Status.ToString(),
+                Status = job.Status,
                 Type = job.Type.ToString(),
                 RequestFileId = job.RequestFileId,
                 RequestFileName = job.RequestFile?.FileName,
@@ -165,16 +174,17 @@ namespace TorreClou.Application.Services
             var statistics = new JobStatisticsDto
             {
                 TotalJobs = allJobs.Count,
-                ActiveJobs = allJobs.Count(job => 
-                    job.Status == JobStatus.QUEUED || 
-                    job.Status == JobStatus.PROCESSING || 
-                    job.Status == JobStatus.UPLOADING),
-                CompletedJobs = allJobs.Count(job => job.Status == JobStatus.COMPLETED),
-                FailedJobs = allJobs.Count(job => job.Status == JobStatus.FAILED),
-                QueuedJobs = allJobs.Count(job => job.Status == JobStatus.QUEUED),
-                ProcessingJobs = allJobs.Count(job => job.Status == JobStatus.PROCESSING),
-                UploadingJobs = allJobs.Count(job => job.Status == JobStatus.UPLOADING),
-                CancelledJobs = allJobs.Count(job => job.Status == JobStatus.CANCELLED)
+                ActiveJobs = allJobs.Count(j => j.Status.IsActive()), // <--- Clean
+                CompletedJobs = allJobs.Count(j => j.Status.IsCompleted()),
+                FailedJobs = allJobs.Count(j => j.Status.IsFailed()),
+
+                // Granular counts still use direct comparison
+                QueuedJobs = allJobs.Count(j => j.Status == JobStatus.QUEUED),
+                DownloadingJobs = allJobs.Count(j => j.Status == JobStatus.DOWNLOADING),
+                PendingUploadJobs = allJobs.Count(j => j.Status == JobStatus.PENDING_UPLOAD),
+                UploadingJobs = allJobs.Count(j => j.Status == JobStatus.UPLOADING),
+                RetryingJobs = allJobs.Count(j => j.Status.IsRetrying()), // <--- Clean
+                CancelledJobs = allJobs.Count(j => j.Status.IsCancelled())
             };
 
             return Result.Success(statistics);

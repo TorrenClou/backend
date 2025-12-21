@@ -1,9 +1,9 @@
+using Hangfire.Common;
+using Microsoft.Extensions.Logging;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Specifications;
-using TorreClou.Infrastructure.Tracing;
-using Microsoft.Extensions.Logging;
 
 namespace TorreClou.Infrastructure.Workers
 {
@@ -12,100 +12,83 @@ namespace TorreClou.Infrastructure.Workers
     /// Implements Template Method pattern for consistent job lifecycle management.
     /// </summary>
     /// <typeparam name="TJob">The concrete job type for logger categorization.</typeparam>
-    public abstract class BaseJob<TJob> where TJob : class
+    public abstract class BaseJob<TJob>(
+        IUnitOfWork unitOfWork,
+        ILogger<TJob> logger) where TJob : class
     {
-        protected readonly IUnitOfWork UnitOfWork;
-        protected readonly ILogger<TJob> Logger;
+        protected readonly IUnitOfWork UnitOfWork = unitOfWork;
+        protected readonly ILogger<TJob> Logger = logger;
 
         /// <summary>
         /// Log prefix for consistent logging (e.g., "[DOWNLOAD]", "[UPLOAD]").
         /// </summary>
         protected abstract string LogPrefix { get; }
 
-        protected BaseJob(IUnitOfWork unitOfWork, ILogger<TJob> logger)
-        {
-            UnitOfWork = unitOfWork;
-            Logger = logger;
-        }
-
         /// <summary>
         /// Template method that orchestrates the job execution lifecycle.
         /// Subclasses should override ExecuteCoreAsync for specific job logic.
-        /// Wrapped in Datadog span for distributed tracing.
         /// </summary>
         public async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
         {
             var operationName = $"job.{LogPrefix.Trim('[', ']').ToLowerInvariant()}.execute";
             
-            using var span = Tracing.Tracing.StartSpan(operationName, $"Job {jobId}")
-                .WithTag("job.id", jobId)
-                .WithTag("job.type", GetType().Name)
-                .WithTag("job.prefix", LogPrefix);
 
             Logger.LogInformation("{LogPrefix} Starting job | JobId: {JobId}", LogPrefix, jobId);
-
-            UserJob? job = null;
+            UserJob? job = null; 
 
             try
             {
                 // 1. Load job from database
-                using (Tracing.Tracing.StartChildSpan("job.load"))
-                {
-                    job = await LoadJobAsync(jobId);
-                }
-                
+                 job = await LoadJobAsync(jobId);
+
+
                 if (job == null)
                 {
-                    span.WithTag("job.status", "not_found").AsError();
                     return;
                 }
 
-                // Add job details to span
-                span.WithTag("job.user_id", job.UserId)
-                    .WithTag("job.status.initial", job.Status.ToString());
+                // 2. Check if job is FAILED - never reprocess failed jobs
+                if (job.Status == JobStatus.FAILED)
+                {
+                    Logger.LogWarning("{LogPrefix} Job is FAILED and will not be reprocessed | JobId: {JobId}", 
+                        LogPrefix, jobId);
+                    return;
+                }
 
-                // 2. Check if already completed or cancelled
+                // 3. Check if already completed or cancelled
                 if (IsJobTerminated(job))
                 {
                     Logger.LogInformation("{LogPrefix} Job already finished | JobId: {JobId} | Status: {Status}", 
                         LogPrefix, jobId, job.Status);
-                    span.WithTag("job.status", "already_terminated")
-                        .WithTag("job.status.final", job.Status.ToString());
                     return;
                 }
 
-                // 3. Execute the core job logic
-                using (Tracing.Tracing.StartChildSpan("job.execute_core"))
-                {
-                    await ExecuteCoreAsync(job, cancellationToken);
-                }
-                
-                span.WithTag("job.status", "success")
-                    .WithTag("job.status.final", job.Status.ToString());
+                // 4. Execute the core job logic
+                await ExecuteCoreAsync(job, cancellationToken);
+
+
             }
             catch (OperationCanceledException)
             {
-                Logger.LogWarning("{LogPrefix} Job cancelled | JobId: {JobId}", LogPrefix, jobId);
-                span.WithTag("job.status", "cancelled").AsError();
-                
+                Logger.LogError("{LogPrefix} Job cancelled | JobId: {JobId}", LogPrefix, jobId);
                 if (job != null)
-                {
-                    span.WithTag("job.status.final", job.Status.ToString());
                     await OnJobCancelledAsync(job);
-                }
+
                 throw; // Let Hangfire handle the cancellation
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Fatal error | JobId: {JobId}", LogPrefix, jobId);
+                Logger.LogCritical(ex, "{LogPrefix} Fatal error | JobId: {JobId}", LogPrefix, jobId);
                 
-                span.WithTag("job.status", "error").WithException(ex);
 
                 if (job != null)
                 {
-                    span.WithTag("job.status.final", JobStatus.FAILED.ToString());
+                    // Check if retries are available before marking as failed
+                    bool hasRetries = HasRetriesAvailable(job);
+                    // MarkJobFailedAsync will determine the correct status, so we don't need to set it here
                     await OnJobErrorAsync(job, ex);
-                    await MarkJobFailedAsync(job, ex.Message);
+                    await MarkJobFailedAsync(job, ex.Message, hasRetries);
+                    
                 }
 
                 throw; // Let Hangfire retry if attempts remain
@@ -159,11 +142,13 @@ namespace TorreClou.Infrastructure.Workers
 
         /// <summary>
         /// Checks if the job is in a terminal state (COMPLETED or CANCELLED).
+        /// Note: FAILED is checked separately and never reprocessed.
         /// </summary>
         protected bool IsJobTerminated(UserJob job)
         {
             return job.Status == JobStatus.COMPLETED || job.Status == JobStatus.CANCELLED;
         }
+
 
         /// <summary>
         /// Updates the job's heartbeat and current state.
@@ -177,33 +162,98 @@ namespace TorreClou.Infrastructure.Workers
                 {
                     job.CurrentState = state;
                 }
+                
                 await UnitOfWork.Complete();
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "{LogPrefix} Failed to update heartbeat | JobId: {JobId}", LogPrefix, job.Id);
+                Logger.LogCritical(ex, "{LogPrefix} Failed to update heartbeat | JobId: {JobId}", LogPrefix, job.Id);
             }
         }
 
         /// <summary>
         /// Marks the job as failed with an error message.
+        /// If retries are available (determined by Hangfire), sets status to specific retry state based on current phase.
+        /// Otherwise, sets appropriate failure state.
         /// </summary>
-        protected async Task MarkJobFailedAsync(UserJob job, string errorMessage)
+        protected async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
         {
             try
             {
-                job.Status = JobStatus.FAILED;
-                job.ErrorMessage = errorMessage;
-                job.CompletedAt = DateTime.UtcNow;
+                if (hasRetries)
+                {
+                    // Determine retry state based on current job phase
+                    JobStatus retryStatus = job.Status switch
+                    {
+                        JobStatus.QUEUED or JobStatus.DOWNLOADING or JobStatus.TORRENT_FAILED or JobStatus.TORRENT_DOWNLOAD_RETRY => JobStatus.TORRENT_DOWNLOAD_RETRY,
+                        JobStatus.SYNCING or JobStatus.SYNC_RETRY => JobStatus.SYNC_RETRY,
+                        JobStatus.UPLOADING or JobStatus.UPLOAD_RETRY => JobStatus.UPLOAD_RETRY,
+                    };
+                    
+                    job.Status = retryStatus;
+                    job.ErrorMessage = errorMessage;
+                    // NextRetryAt will be set by Hangfire's retry mechanism
+                    // We estimate it based on typical retry delays: 60s, 300s, 900s
+                    // This is approximate - Hangfire will handle actual scheduling
+                    job.NextRetryAt = DateTime.UtcNow.AddMinutes(1); // Conservative estimate
+                    
+                    Logger.LogWarning("{LogPrefix} Job marked as {RetryStatus} | JobId: {JobId} | Error: {Error} | NextRetryAt: {NextRetry}", 
+                        LogPrefix, retryStatus, job.Id, errorMessage, job.NextRetryAt);
+                }
+                else
+                {
+                    // Determine failure state based on current job phase
+                    JobStatus failureStatus = job.Status switch
+                    {
+                        JobStatus.DOWNLOADING or JobStatus.TORRENT_DOWNLOAD_RETRY or JobStatus.TORRENT_FAILED => JobStatus.TORRENT_FAILED,
+                        JobStatus.SYNCING or JobStatus.SYNC_RETRY => JobStatus.UPLOAD_FAILED, // Sync failures are upload-related
+                        JobStatus.UPLOADING or JobStatus.UPLOAD_RETRY => JobStatus.UPLOAD_FAILED,
+                        _ => JobStatus.FAILED // Fallback to generic failure state
+                    };
+                    
+                    job.Status = failureStatus;
+                    job.ErrorMessage = errorMessage;
+                    job.CompletedAt = DateTime.UtcNow;
+                    job.NextRetryAt = null; // Clear retry time
+                    
+                    Logger.LogError("{LogPrefix} Job marked as {FailureStatus} (no retries remaining) | JobId: {JobId} | Error: {Error}", 
+                        LogPrefix, failureStatus, job.Id, errorMessage);
+                }
+                
                 await UnitOfWork.Complete();
-
-                Logger.LogError("{LogPrefix} Job marked as failed | JobId: {JobId} | Error: {Error}", 
-                    LogPrefix, job.Id, errorMessage);
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Failed to mark job as failed | JobId: {JobId}", LogPrefix, job.Id);
+                Logger.LogError(ex, "{LogPrefix} Failed to mark job status | JobId: {JobId}", LogPrefix, job.Id);
             }
+        }
+
+        /// <summary>
+        /// Determines if Hangfire retries are likely available for this job.
+        /// This is a heuristic - Hangfire's AutomaticRetry attribute controls actual retries.
+        /// </summary>
+        protected bool HasRetriesAvailable(UserJob job)
+        {
+            // If job is in a terminal failure state, no retries
+            if (job.Status == JobStatus.FAILED ||
+                job.Status == JobStatus.TORRENT_FAILED ||
+                job.Status == JobStatus.UPLOAD_FAILED ||
+                job.Status == JobStatus.GOOGLE_DRIVE_FAILED ||
+                job.Status == JobStatus.COMPLETED ||
+                job.Status == JobStatus.CANCELLED)
+                return false;
+
+            // If job is in any retry state, assume retries might still be available
+            // (Hangfire will eventually mark as FAILED when exhausted)
+            if (
+                job.Status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                job.Status == JobStatus.UPLOAD_RETRY ||
+                job.Status == JobStatus.SYNC_RETRY)
+                return true;
+
+            // For other active states, assume retries might be available
+            // Hangfire's AutomaticRetry will handle actual retry logic
+            return true;
         }
     }
 }
