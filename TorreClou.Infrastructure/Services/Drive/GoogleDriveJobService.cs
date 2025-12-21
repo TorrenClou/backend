@@ -8,6 +8,7 @@ using TorreClou.Core.DTOs.Storage.GoogleDrive;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Options;
 using TorreClou.Core.Shared;
+using TorreClou.Core.Entities.Jobs;
 
 namespace TorreClou.Infrastructure.Services.Drive
 {
@@ -15,45 +16,48 @@ namespace TorreClou.Infrastructure.Services.Drive
         IOptions<GoogleDriveSettings> settings,
         IHttpClientFactory httpClientFactory,
         ILogger<GoogleDriveJobService> logger,
-        IUploadProgressContext progressContext) : IGoogleDriveJobService
+        IUploadProgressContext progressContext,
+        IUnitOfWork unitOfWork) : IGoogleDriveJobService
     {
         private readonly GoogleDriveSettings _settings = settings.Value;
 
         // Upload chunk size: 10 MB (must be multiple of 256 KB per Google's requirements)
         private const int ChunkSize = 10 * 1024 * 1024;
 
-        public async Task<Result<string>> GetAccessTokenAsync(string credentialsJson, CancellationToken cancellationToken = default)
+        public async Task<Result<string>> GetAccessTokenAsync(UserStorageProfile profile, CancellationToken cancellationToken = default)
         {
             try
             {
-                var credentials = JsonSerializer.Deserialize<GoogleDriveCredentials>(credentialsJson);
+                var credentials = JsonSerializer.Deserialize<GoogleDriveCredentials>(profile.CredentialsJson);
                 if (credentials == null || string.IsNullOrEmpty(credentials.AccessToken))
                 {
                     return Result<string>.Failure("INVALID_CREDENTIALS", "Invalid credentials JSON");
                 }
 
-                // Check if token is expired
-                if (!string.IsNullOrEmpty(credentials.ExpiresAt))
+                // Always refresh token at job start to prevent mid-job expiration
+                if (string.IsNullOrEmpty(credentials.RefreshToken))
                 {
-                    if (DateTime.TryParse(credentials.ExpiresAt, out var expiresAt) && expiresAt <= DateTime.UtcNow.AddMinutes(5))
-                    {
-                        // Token expired or about to expire, refresh it
-                        if (string.IsNullOrEmpty(credentials.RefreshToken))
-                        {
-                            return Result<string>.Failure("NO_REFRESH_TOKEN", "Access token expired and no refresh token available");
-                        }
-
-                        var refreshResult = await RefreshAccessTokenAsync(credentials.RefreshToken, cancellationToken);
-                        if (refreshResult.IsFailure)
-                        {
-                            return refreshResult;
-                        }
-
-                        return Result.Success(refreshResult.Value);
-                    }
+                    return Result<string>.Failure("NO_REFRESH_TOKEN", "No refresh token available");
                 }
 
-                return Result.Success(credentials.AccessToken);
+                var refreshResult = await RefreshAccessTokenAsync(credentials.RefreshToken, cancellationToken);
+                if (refreshResult.IsFailure)
+                {
+                    return Result<string>.Failure(refreshResult.Error.Code, refreshResult.Error.Message);
+                }
+
+                // Update credentials with new token and expiration
+                credentials.AccessToken = refreshResult.Value.AccessToken;
+                credentials.ExpiresAt = DateTime.UtcNow.AddSeconds(refreshResult.Value.ExpiresIn).ToString("O");
+                
+                // Save back to profile
+                profile.CredentialsJson = JsonSerializer.Serialize(credentials);
+                
+                // Persist changes to database
+                await unitOfWork.Complete();
+
+                logger.LogInformation("Token refreshed and persisted for profile {ProfileId}", profile.Id);
+                return Result.Success(refreshResult.Value.AccessToken);
             }
             catch (Exception ex)
             {
@@ -62,7 +66,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             }
         }
 
-        public async Task<Result<string>> RefreshAccessTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
+        public async Task<Result<(string AccessToken, int ExpiresIn)>> RefreshAccessTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -82,7 +86,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                     logger.LogError("Token refresh failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return Result<string>.Failure("REFRESH_FAILED", "Failed to refresh access token");
+                    return Result<(string, int)>.Failure("REFRESH_FAILED", "Failed to refresh access token");
                 }
 
                 var jsonResponse = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -90,15 +94,15 @@ namespace TorreClou.Infrastructure.Services.Drive
 
                 if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
                 {
-                    return Result<string>.Failure("INVALID_RESPONSE", "Invalid token refresh response");
+                    return Result<(string, int)>.Failure("INVALID_RESPONSE", "Invalid token refresh response");
                 }
 
-                return Result.Success(tokenResponse.AccessToken);
+                return Result.Success((tokenResponse.AccessToken, tokenResponse.ExpiresIn));
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Exception during token refresh");
-                return Result<string>.Failure("REFRESH_ERROR", "Error refreshing access token");
+                return Result<(string, int)>.Failure("REFRESH_ERROR", "Error refreshing access token");
             }
         }
 
