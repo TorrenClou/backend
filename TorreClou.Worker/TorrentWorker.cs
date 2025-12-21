@@ -3,6 +3,7 @@ using StackExchange.Redis;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
+using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Infrastructure.Workers;
 using TorreClou.Worker.Services;
 
@@ -40,7 +41,7 @@ namespace TorreClou.Worker
                 return true;
             }
 
-            var hfId = hangfireClient.Enqueue<TorrentDownloadJob>(x => x.ExecuteAsync(jobId.Value, CancellationToken.None));
+            var hfId = hangfireClient.Enqueue<ITorrentDownloadJob>(x => x.ExecuteAsync(jobId.Value, CancellationToken.None));
 
             job.HangfireJobId = hfId;
             job.Status = JobStatus.QUEUED;

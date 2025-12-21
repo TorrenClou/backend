@@ -5,6 +5,9 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Infrastructure.Workers;
 using TorreClou.GoogleDrive.Worker.Services; 
 using Hangfire;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using TorreClou.Core.Interfaces.Hangfire;
 
 namespace TorreClou.GoogleDrive.Worker
 {
@@ -52,7 +55,7 @@ namespace TorreClou.GoogleDrive.Worker
             // the Job itself (GoogleDriveUploadJob) should load the entity from DB to get those details.
             Logger.LogInformation("[GD_WORKER] Enqueuing Job {Id}...", jobId);
 
-            var hangfireJobId = backgroundJobClient.Enqueue<GoogleDriveUploadJob>(
+            var hangfireJobId = backgroundJobClient.Enqueue<IGoogleDriveUploadJob>(
                 service => service.ExecuteAsync(jobId.Value, CancellationToken.None));
 
             // 5. Update State

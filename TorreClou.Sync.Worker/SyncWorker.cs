@@ -6,6 +6,7 @@ using TorreClou.Infrastructure.Workers;
 using TorreClou.Sync.Worker.Services;
 using Hangfire;
 using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
+using TorreClou.Core.Interfaces.Hangfire;
 
 namespace TorreClou.Sync.Worker
 {
@@ -63,7 +64,7 @@ namespace TorreClou.Sync.Worker
             // 5. Enqueue to Hangfire
             Logger.LogInformation("[SYNC_WORKER] Enqueuing Sync {Id}...", syncId);
 
-            var hangfireJobId = backgroundJobClient.Enqueue<S3SyncJob>(
+            var hangfireJobId = backgroundJobClient.Enqueue<IS3SyncJob>(
                 service => service.ExecuteAsync(syncId, CancellationToken.None));
 
             // 6. Update State & Persist ID (Missing in your original code!)
