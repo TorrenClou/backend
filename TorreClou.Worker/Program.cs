@@ -46,6 +46,7 @@ try
         builder.Configuration.GetSection("Backblaze"));
     builder.Services.AddScoped<ITorrentDownloadJob, TorrentDownloadJob>();
     builder.Services.AddScoped<ITransferSpeedMetrics, TransferSpeedMetrics>();
+    builder.Services.AddScoped<IJobStatusService, JobStatusService>();
     builder.Services.AddSingleton<IJobRecoveryStrategy, TorrentRecoveryStrategy>();
 
     // Hosted Services

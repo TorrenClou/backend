@@ -1,4 +1,5 @@
 using Hangfire;
+using Microsoft.Extensions.DependencyInjection;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
@@ -6,7 +7,7 @@ using TorreClou.Core.Interfaces.Hangfire;
 
 namespace TorreClou.Worker.Services
 {
-    public class TorrentRecoveryStrategy(IJobStatusService jobStatusService) : IJobRecoveryStrategy
+    public class TorrentRecoveryStrategy(IServiceScopeFactory serviceScopeFactory) : IJobRecoveryStrategy
     {
         public JobType SupportedJobType => JobType.Torrent;
 
@@ -51,8 +52,20 @@ namespace TorreClou.Worker.Services
             // 2. DOWNLOAD PHASE RECOVERY
             userJob.CurrentState = "Recovering download phase...";
             
+            // Resolve IJobStatusService from a new scope and reload the job to ensure it's tracked
+            using var scope = serviceScopeFactory.CreateScope();
+            var jobStatusService = scope.ServiceProvider.GetRequiredService<IJobStatusService>();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            
+            // Reload the job in the new scope to ensure it's tracked by the correct DbContext
+            var trackedJob = await unitOfWork.Repository<UserJob>().GetByIdAsync(userJob.Id);
+            if (trackedJob == null)
+            {
+                throw new InvalidOperationException($"Job {userJob.Id} not found when attempting recovery");
+            }
+            
             await jobStatusService.TransitionJobStatusAsync(
-                userJob,
+                trackedJob,
                 JobStatus.QUEUED,
                 StatusChangeSource.Recovery,
                 metadata: new { recoveredFrom = userJob.Status.ToString(), recoveryTime = DateTime.UtcNow });
