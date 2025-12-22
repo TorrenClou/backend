@@ -221,6 +221,50 @@ namespace TorreClou.Infrastructure.Migrations
                     b.ToTable("WalletTransactions", "dev");
                 });
 
+            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.JobStatusHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FromStatus")
+                        .HasColumnType("text");
+
+                    b.Property<int>("JobId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToStatus")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "ChangedAt");
+
+                    b.ToTable("JobStatusHistories", "dev");
+                });
+
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.S3SyncProgress", b =>
                 {
                     b.Property<int>("Id")
@@ -358,6 +402,50 @@ namespace TorreClou.Infrastructure.Migrations
                     b.HasIndex("JobId");
 
                     b.ToTable("Syncs", "dev");
+                });
+
+            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.SyncStatusHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FromStatus")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SyncId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ToStatus")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SyncId", "ChangedAt");
+
+                    b.ToTable("SyncStatusHistories", "dev");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
@@ -763,6 +851,17 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.JobStatusHistory", b =>
+                {
+                    b.HasOne("TorreClou.Core.Entities.Jobs.UserJob", "Job")
+                        .WithMany("StatusHistory")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Job");
+                });
+
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.S3SyncProgress", b =>
                 {
                     b.HasOne("TorreClou.Core.Entities.Jobs.UserJob", "UserJob")
@@ -791,6 +890,17 @@ namespace TorreClou.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("UserJob");
+                });
+
+            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.SyncStatusHistory", b =>
+                {
+                    b.HasOne("TorreClou.Core.Entities.Jobs.Sync", "Sync")
+                        .WithMany("StatusHistory")
+                        .HasForeignKey("SyncId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Sync");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
@@ -864,11 +974,15 @@ namespace TorreClou.Infrastructure.Migrations
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.Sync", b =>
                 {
                     b.Navigation("FileProgress");
+
+                    b.Navigation("StatusHistory");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
                 {
                     b.Navigation("Invoice");
+
+                    b.Navigation("StatusHistory");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Marketing.Voucher", b =>
