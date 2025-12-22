@@ -12,7 +12,8 @@ namespace TorreClou.Application.Services
 {
     public class JobService(
         IUnitOfWork unitOfWork,
-        IRedisStreamService redisStreamService) : IJobService
+        IRedisStreamService redisStreamService,
+        IJobStatusService jobStatusService) : IJobService
     {
         private const string JobStreamKey = "jobs:stream";
 
@@ -72,6 +73,15 @@ namespace TorreClou.Application.Services
 
             unitOfWork.Repository<UserJob>().Add(job);
             await unitOfWork.Complete();
+
+            // 4.5. Record initial status in timeline
+            await jobStatusService.RecordInitialJobStatusAsync(job, new
+            {
+                invoiceId,
+                storageProfileId = defaultStorageProfile?.Id,
+                torrentFileId = invoice.TorrentFileId,
+                selectedFilesCount = job.SelectedFilePaths.Length
+            });
 
             // 5. Link Invoice
             invoice.JobId = job.Id;
@@ -148,6 +158,9 @@ namespace TorreClou.Application.Services
                 return Result<JobDto>.Failure("NOT_FOUND", "Job not found.");
             }
 
+            // Fetch timeline
+            var timeline = await jobStatusService.GetJobTimelineAsync(jobId);
+
             return Result.Success(new JobDto
             {
                 Id = job.Id,
@@ -166,7 +179,8 @@ namespace TorreClou.Application.Services
                 TotalBytes = job.TotalBytes,
                 SelectedFilePaths = job.SelectedFilePaths,
                 CreatedAt = job.CreatedAt,
-                UpdatedAt = job.UpdatedAt
+                UpdatedAt = job.UpdatedAt,
+                Timeline = timeline.ToList()
             });
         }
 

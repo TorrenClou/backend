@@ -8,7 +8,7 @@ using TorreClou.Core.Specifications;
 
 namespace TorreClou.Application.Services
 {
-    public class SyncJobsService(IUnitOfWork unitOfWork) : ISyncJobsService
+    public class SyncJobsService(IUnitOfWork unitOfWork, IJobStatusService jobStatusService) : ISyncJobsService
     {
         public async Task<Result<PaginatedResult<SyncJobDto>>> GetAllSyncJobsAsync(int pageNumber, int pageSize, SyncStatus? status = null)
         {
@@ -70,6 +70,9 @@ namespace TorreClou.Application.Services
                 return Result<SyncJobDto>.Failure("NOT_FOUND", "Sync job not found.");
             }
 
+            // Fetch timeline
+            var timeline = await jobStatusService.GetSyncTimelineAsync(syncId);
+
             return Result.Success(new SyncJobDto
             {
                 Id = sync.Id,
@@ -94,7 +97,8 @@ namespace TorreClou.Application.Services
                 RequestFileName = sync.UserJob?.RequestFile?.FileName,
                 RequestFileId = sync.UserJob?.RequestFileId,
                 StorageProfileName = sync.UserJob?.StorageProfile?.ProfileName,
-                StorageProfileId = sync.UserJob?.StorageProfileId
+                StorageProfileId = sync.UserJob?.StorageProfileId,
+                Timeline = timeline.ToList()
             });
         }
 
