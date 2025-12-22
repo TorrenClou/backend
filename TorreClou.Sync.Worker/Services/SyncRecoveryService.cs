@@ -78,20 +78,24 @@ namespace TorreClou.Sync.Worker.Services
                         continue;
                     }
 
+                    var previousStatus = sync.Status;
+
+                    // Update sync state BEFORE enqueuing to ensure S3SyncJob accepts it
+                    // Set to SYNC_RETRY so the job passes the status check in ExecuteCoreAsync
+                    sync.Status = SyncStatus.SYNC_RETRY;
+                    sync.ErrorMessage = null;
+                    sync.LastHeartbeat = DateTime.UtcNow;
+
                     // Enqueue new Hangfire job
                     var newHangfireId = backgroundJobClient.Enqueue<IS3SyncJob>(
                         x => x.ExecuteAsync(sync.Id, CancellationToken.None));
 
-                    // Update sync state
                     sync.HangfireJobId = newHangfireId;
-                    sync.Status = SyncStatus.SYNCING;
-                    sync.ErrorMessage = null;
-                    sync.LastHeartbeat = DateTime.UtcNow;
 
                     await unitOfWork.Complete();
 
-                    logger.LogInformation("[SYNC_RECOVERY] Recovered sync {SyncId} -> HF {HangfireId}",
-                        sync.Id, newHangfireId);
+                    logger.LogInformation("[SYNC_RECOVERY] Recovered sync {SyncId} (was {PreviousStatus}) -> HF {HangfireId}",
+                        sync.Id, previousStatus, newHangfireId);
                 }
                 catch (Exception ex)
                 {
