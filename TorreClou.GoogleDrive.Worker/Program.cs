@@ -9,6 +9,8 @@ using TorreClou.Infrastructure.Services.Drive;
 using TorreClou.Infrastructure.Settings;
 using TorreClou.GoogleDrive.Worker;
 using TorreClou.GoogleDrive.Worker.Services;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
 const string ServiceName = "torreclou-googledrive-worker";
 
