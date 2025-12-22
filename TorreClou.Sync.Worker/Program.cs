@@ -44,6 +44,7 @@ try
     builder.Services.Configure<BackblazeSettings>(builder.Configuration.GetSection("Backblaze"));
     builder.Services.AddScoped<IS3ResumableUploadService, S3ResumableUploadService>();
     builder.Services.AddScoped<IS3SyncJob, S3SyncJob>();
+    builder.Services.AddScoped<IJobStatusService, TorreClou.Infrastructure.Services.JobStatusService>();
 
     // Hosted Services
     builder.Services.Configure<JobHealthMonitorOptions>(opts =>
