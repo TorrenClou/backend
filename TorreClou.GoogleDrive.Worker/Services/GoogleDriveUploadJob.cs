@@ -20,7 +20,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
         ITransferSpeedMetrics speedMetrics,
         IOptions<BackblazeSettings> backblazeSettings,
         IRedisLockService redisLockService,
-        IRedisStreamService redisStreamService) : UserJobBase<GoogleDriveUploadJob>(unitOfWork, logger), IGoogleDriveUploadJob
+        IRedisStreamService redisStreamService,
+        IJobStatusService jobStatusService) : UserJobBase<GoogleDriveUploadJob>(unitOfWork, logger, jobStatusService), IGoogleDriveUploadJob
     {
 
         protected override string LogPrefix => "[GOOGLE_DRIVE:UPLOAD]";
@@ -59,19 +60,27 @@ namespace TorreClou.GoogleDrive.Worker.Services
             if (job.Status == JobStatus.PENDING_UPLOAD)
             {
                 Logger.LogInformation("{LogPrefix} Job ready for upload, transitioning to UPLOADING | JobId: {JobId}", LogPrefix, job.Id);
-                job.Status = JobStatus.UPLOADING;
                 job.CurrentState = "Starting upload...";
                 if (job.StartedAt == null) job.StartedAt = DateTime.UtcNow;
                 job.LastHeartbeat = DateTime.UtcNow;
-                await UnitOfWork.Complete();
+                
+                await JobStatusService.TransitionJobStatusAsync(
+                    job,
+                    JobStatus.UPLOADING,
+                    StatusChangeSource.Worker,
+                    metadata: new { provider = "GoogleDrive", startedAt = job.StartedAt });
             }
-            else if ( job.Status == JobStatus.UPLOAD_RETRY)
+            else if (job.Status == JobStatus.UPLOAD_RETRY)
             {
                 Logger.LogInformation("{LogPrefix} Retrying job | JobId: {JobId} | Retry: {NextRetry}", LogPrefix, job.Id, job.NextRetryAt);
-                job.Status = JobStatus.UPLOADING;
                 job.CurrentState = "Retrying upload...";
                 job.LastHeartbeat = DateTime.UtcNow;
-                await UnitOfWork.Complete();
+                
+                await JobStatusService.TransitionJobStatusAsync(
+                    job,
+                    JobStatus.UPLOADING,
+                    StatusChangeSource.Worker,
+                    metadata: new { provider = "GoogleDrive", retrying = true, previousNextRetry = job.NextRetryAt });
             }
             else if (job.Status == JobStatus.UPLOADING)
             {
@@ -176,11 +185,15 @@ namespace TorreClou.GoogleDrive.Worker.Services
             var duration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
             speedMetrics.RecordUploadComplete(job.Id, job.UserId, "googledrive_upload", totalBytes, duration);
 
-            job.Status = JobStatus.COMPLETED;
             job.CompletedAt = DateTime.UtcNow;
             job.CurrentState = "Upload completed successfully";
             job.NextRetryAt = null;
-            await UnitOfWork.Complete();
+            
+            await JobStatusService.TransitionJobStatusAsync(
+                job,
+                JobStatus.COMPLETED,
+                StatusChangeSource.Worker,
+                metadata: new { totalBytes, filesCount = filesToUpload.Length, durationSeconds = duration, completedAt = job.CompletedAt });
 
             Logger.LogInformation("{LogPrefix} Completed successfully | JobId: {JobId}", LogPrefix, job.Id);
 

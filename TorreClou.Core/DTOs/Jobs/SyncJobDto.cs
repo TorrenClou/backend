@@ -34,6 +34,11 @@ namespace TorreClou.Core.DTOs.Jobs
         public double ProgressPercentage => TotalBytes > 0 ? (BytesSynced / (double)TotalBytes) * 100 : 0;
         public bool IsActive => Status == SyncStatus.SYNCING || 
                                Status == SyncStatus.SYNC_RETRY;
+
+        /// <summary>
+        /// Status change timeline for this sync.
+        /// </summary>
+        public List<SyncTimelineEntryDto> Timeline { get; set; } = [];
     }
 }
 

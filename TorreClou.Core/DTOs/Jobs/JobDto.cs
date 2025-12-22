@@ -29,6 +29,11 @@ namespace TorreClou.Core.DTOs.Jobs
                                Status == JobStatus.PENDING_UPLOAD || 
                                Status == JobStatus.UPLOADING || 
                                Status == JobStatus.TORRENT_DOWNLOAD_RETRY || 
-                               Status == JobStatus.UPLOAD_RETRY ;
+                               Status == JobStatus.UPLOAD_RETRY;
+
+        /// <summary>
+        /// Status change timeline for this job.
+        /// </summary>
+        public List<JobTimelineEntryDto> Timeline { get; set; } = [];
     }
 }

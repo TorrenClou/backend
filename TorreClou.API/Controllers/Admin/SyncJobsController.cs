@@ -8,7 +8,7 @@ namespace TorreClou.API.Controllers.Admin
     [Route("api/admin/jobs/sync")]
     [ApiController]
     [Authorize]
-    public class SyncJobsController(ISyncJobsService syncJobsService) : BaseApiController
+    public class SyncJobsController(ISyncJobsService syncJobsService, IJobStatusService jobStatusService) : BaseApiController
     {
         [HttpGet]
         public async Task<IActionResult> GetAllSyncJobs(
@@ -25,6 +25,23 @@ namespace TorreClou.API.Controllers.Admin
         {
             var result = await syncJobsService.GetSyncJobByIdAsync(id);
             return HandleResult(result);
+        }
+
+        /// <summary>
+        /// Get the full status timeline for a specific sync job.
+        /// </summary>
+        [HttpGet("{id}/timeline")]
+        public async Task<IActionResult> GetSyncJobTimeline(int id)
+        {
+            // Verify the sync job exists
+            var syncResult = await syncJobsService.GetSyncJobByIdAsync(id);
+            if (!syncResult.IsSuccess)
+            {
+                return HandleResult(syncResult);
+            }
+
+            var timeline = await jobStatusService.GetSyncTimelineAsync(id);
+            return Ok(timeline);
         }
 
         [HttpGet("statistics")]

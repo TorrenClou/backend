@@ -7,7 +7,7 @@ namespace TorreClou.API.Controllers
 {
     [Route("api/jobs")]
     [Authorize]
-    public class JobsController(IJobService jobService) : BaseApiController
+    public class JobsController(IJobService jobService, IJobStatusService jobStatusService) : BaseApiController
     {
         [HttpGet]
         public async Task<IActionResult> GetJobs(
@@ -24,6 +24,23 @@ namespace TorreClou.API.Controllers
         {
             var result = await jobService.GetJobByIdAsync(UserId, id, UserRole);
             return HandleResult(result);
+        }
+
+        /// <summary>
+        /// Get the full status timeline for a specific job.
+        /// </summary>
+        [HttpGet("{id}/timeline")]
+        public async Task<IActionResult> GetJobTimeline(int id)
+        {
+            // First verify the user has access to this job
+            var jobResult = await jobService.GetJobByIdAsync(UserId, id, UserRole);
+            if (!jobResult.IsSuccess)
+            {
+                return HandleResult(jobResult);
+            }
+
+            var timeline = await jobStatusService.GetJobTimelineAsync(id);
+            return Ok(timeline);
         }
 
         [HttpGet("statistics")]

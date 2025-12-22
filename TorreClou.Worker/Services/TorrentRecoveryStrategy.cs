@@ -6,7 +6,7 @@ using TorreClou.Core.Interfaces.Hangfire;
 
 namespace TorreClou.Worker.Services
 {
-    public class TorrentRecoveryStrategy : IJobRecoveryStrategy
+    public class TorrentRecoveryStrategy(IJobStatusService jobStatusService) : IJobRecoveryStrategy
     {
         public JobType SupportedJobType => JobType.Torrent;
 
@@ -25,7 +25,7 @@ namespace TorreClou.Worker.Services
             JobStatus.GOOGLE_DRIVE_FAILED
         };
 
-        public string RecoverJob(IRecoverableJob job, IBackgroundJobClient client)
+        public async Task<string?> RecoverJobAsync(IRecoverableJob job, IBackgroundJobClient client)
         {
             var userJob = (UserJob)job;
 
@@ -50,7 +50,12 @@ namespace TorreClou.Worker.Services
 
             // 2. DOWNLOAD PHASE RECOVERY
             userJob.CurrentState = "Recovering download phase...";
-            userJob.Status = JobStatus.QUEUED;
+            
+            await jobStatusService.TransitionJobStatusAsync(
+                userJob,
+                JobStatus.QUEUED,
+                StatusChangeSource.Recovery,
+                metadata: new { recoveredFrom = userJob.Status.ToString(), recoveryTime = DateTime.UtcNow });
 
             return client.Enqueue<ITorrentDownloadJob>(
                 service => service.ExecuteAsync(job.Id, CancellationToken.None));

@@ -7,6 +7,6 @@ namespace TorreClou.Core.Interfaces
     {
         JobType SupportedJobType { get; }
         IReadOnlyList<JobStatus> MonitoredStatuses { get; }
-        string? RecoverJob(IRecoverableJob job, IBackgroundJobClient backgroundJobClient);
+        Task<string?> RecoverJobAsync(IRecoverableJob job, IBackgroundJobClient backgroundJobClient);
     }
 }

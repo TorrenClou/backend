@@ -28,6 +28,11 @@ namespace TorreClou.Core.Entities.Jobs
         public DateTime? LastHeartbeat { get; set; }
         public string? HangfireJobId { get; set; }
         JobStatus IRecoverableJob.Status { get; set; }
+
+        /// <summary>
+        /// Status change history for this sync, providing a complete audit trail.
+        /// </summary>
+        public ICollection<SyncStatusHistory> StatusHistory { get; set; } = new List<SyncStatusHistory>();
     }
 }
 
