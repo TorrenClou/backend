@@ -133,15 +133,11 @@ namespace TorreClou.Sync.Worker.Services
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Fatal error during sync", LogPrefix);
+                Logger.LogError(ex, "{LogPrefix} Fatal error during sync | SyncId: {SyncId} | ExceptionType: {ExceptionType}",
+                    LogPrefix, sync.Id, ex.GetType().Name);
                 
-                await JobStatusService.TransitionSyncStatusAsync(
-                    sync,
-                    SyncStatus.FAILED,
-                    StatusChangeSource.Worker,
-                    ex.Message,
-                    new { exception = ex.GetType().Name });
-                
+                // Let base class SyncJobBase.ExecuteAsync handle the status transition
+                // to avoid duplicate timeline entries
                 throw;
             }
         }

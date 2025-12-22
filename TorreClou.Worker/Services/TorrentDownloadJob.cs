@@ -432,19 +432,12 @@ namespace TorreClou.Worker.Services
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Failed during download completion | JobId: {JobId}", 
-                    LogPrefix, job.Id);
+                Logger.LogError(ex, "{LogPrefix} Failed during download completion | JobId: {JobId} | ExceptionType: {ExceptionType}", 
+                    LogPrefix, job.Id, ex.GetType().Name);
                 
-                // Mark job as failed - sync or other step failed
-                // Do NOT cleanup block storage on failure (files may be needed for retry)
-                await JobStatusService.TransitionJobStatusAsync(
-                    job,
-                    JobStatus.FAILED,
-                    StatusChangeSource.Worker,
-                    $"Failed during download completion: {ex.Message}",
-                    new { exception = ex.GetType().Name });
-                
-                throw; // Re-throw to ensure job is marked as failed
+                // Let base class UserJobBase.ExecuteAsync handle the status transition
+                // to avoid duplicate timeline entries
+                throw;
             }
         }
 
