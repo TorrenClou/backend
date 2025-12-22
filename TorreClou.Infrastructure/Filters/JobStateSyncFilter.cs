@@ -46,6 +46,7 @@ namespace TorreClou.Infrastructure.Filters
         {
             using var scope = scopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            var jobStatusService = scope.ServiceProvider.GetRequiredService<IJobStatusService>();
             var job = await unitOfWork.Repository<UserJob>().GetByIdAsync(jobId);
 
             if (job == null || job.Status.IsFailed()) return;
@@ -60,18 +61,22 @@ namespace TorreClou.Infrastructure.Filters
 
             logger.LogError("[Filter] Marking UserJob {JobId} as {Status} (Exhausted). Error: {Error}", jobId, failureStatus, error);
 
-            job.Status = failureStatus;
-            job.ErrorMessage = $"System Failure: {error}";
             job.CompletedAt = DateTime.UtcNow;
             job.NextRetryAt = null;
 
-            await unitOfWork.Complete();
+            await jobStatusService.TransitionJobStatusAsync(
+                job,
+                failureStatus,
+                StatusChangeSource.System,
+                $"System Failure: {error}",
+                new { exhaustedRetries = true, hangfireJobId = jobId });
         }
 
         private async Task UpdateSyncStatusToFailed(int syncId, string error)
         {
             using var scope = scopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            var jobStatusService = scope.ServiceProvider.GetRequiredService<IJobStatusService>();
 
             // Correctly using SyncEntity repository
             var sync = await unitOfWork.Repository<SyncEntity>().GetByIdAsync(syncId);
@@ -80,11 +85,14 @@ namespace TorreClou.Infrastructure.Filters
 
             logger.LogError("[Filter] Marking Sync {SyncId} as Failed (Exhausted). Error: {Error}", syncId, error);
 
-            sync.Status = SyncStatus.FAILED;
-            sync.ErrorMessage = $"System Failure: {error}";
             sync.NextRetryAt = null;
 
-            await unitOfWork.Complete();
+            await jobStatusService.TransitionSyncStatusAsync(
+                sync,
+                SyncStatus.FAILED,
+                StatusChangeSource.System,
+                $"System Failure: {error}",
+                new { exhaustedRetries = true });
         }
     }
 }

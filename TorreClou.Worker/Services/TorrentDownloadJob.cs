@@ -22,7 +22,8 @@ namespace TorreClou.Worker.Services
         ILogger<TorrentDownloadJob> logger,
         IRedisStreamService redisStreamService,
         ITransferSpeedMetrics speedMetrics,
-        IOptions<BackblazeSettings> backblazeSettings) : UserJobBase<TorrentDownloadJob>(unitOfWork, logger), ITorrentDownloadJob
+        IJobStatusService jobStatusService,
+        IOptions<BackblazeSettings> backblazeSettings) : UserJobBase<TorrentDownloadJob>(unitOfWork, logger, jobStatusService), ITorrentDownloadJob
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
 
@@ -74,13 +75,18 @@ namespace TorreClou.Worker.Services
                 var downloadableSize = torrent.Files
                     .Where(file => job.SelectedFilePaths.Contains(file.Path))
                     .Sum(file => file.Length);
-                job.Status = JobStatus.DOWNLOADING;
+                
                 job.StartedAt ??= DateTime.UtcNow;
                 job.LastHeartbeat = DateTime.UtcNow;
                 job.DownloadPath = downloadPath;
                 job.CurrentState = "Initializing torrent download...";
                 job.TotalBytes = downloadableSize;
-                await UnitOfWork.Complete();
+                
+                await JobStatusService.TransitionJobStatusAsync(
+                    job,
+                    JobStatus.DOWNLOADING,
+                    StatusChangeSource.Worker,
+                    metadata: new { downloadPath, totalBytes = downloadableSize, torrentName = torrent.Name });
 
                 // 5. Create and configure MonoTorrent engine with FastResume
                 _engine = CreateEngine(downloadPath);
@@ -129,10 +135,13 @@ namespace TorreClou.Worker.Services
                     {
                         // Download not complete, reset to downloading and continue with normal flow
                         Logger.LogWarning("{LogPrefix} Torrent not complete, resuming to DOWNLOADING | JobId: {JobId} | Progress: {Progress}%", 
-                            LogPrefix, job.Id
-                            , manager.Progress);
-                        job.Status = JobStatus.DOWNLOADING;
-                        await UnitOfWork.Complete();
+                            LogPrefix, job.Id, manager.Progress);
+                        
+                        await JobStatusService.TransitionJobStatusAsync(
+                            job,
+                            JobStatus.DOWNLOADING,
+                            StatusChangeSource.Worker,
+                            metadata: new { resuming = true, currentProgress = manager.Progress });
                     }
 
                 var actualBytesDownloaded = (long)(downloadableSize * (progress / 100.0));
@@ -299,7 +308,6 @@ namespace TorreClou.Worker.Services
                     Logger.LogError("{LogPrefix} Torrent error | JobId: {JobId} | Error: {Error}", 
                         LogPrefix, job.Id, errorReason);
                     // Mark as TORRENT_FAILED - BaseJob will handle retry logic and set TORRENT_DOWNLOAD_RETRY if retries available
-                    job.Status = JobStatus.TORRENT_FAILED;
                     await MarkJobFailedAsync(job, $"Torrent error: {errorReason}");
                     return false;
                 }
@@ -396,10 +404,14 @@ namespace TorreClou.Worker.Services
             try
             {
                 // Step 1: Update job status to PENDING_UPLOAD
-                job.Status = JobStatus.PENDING_UPLOAD;
-                job.CurrentState = "Download complete. Starting  upload...";
+                job.CurrentState = "Download complete. Starting upload...";
                 job.BytesDownloaded = job.TotalBytes;
-                await UnitOfWork.Complete();
+                
+                await JobStatusService.TransitionJobStatusAsync(
+                    job,
+                    JobStatus.PENDING_UPLOAD,
+                    StatusChangeSource.Worker,
+                    metadata: new { bytesDownloaded = job.BytesDownloaded, storageProvider = job.StorageProfile?.ProviderType.ToString() });
 
                 Logger.LogInformation("{LogPrefix} Publishing to upload stream | JobId: {JobId} | Provider: {Provider}", 
                     LogPrefix, job.Id, job.StorageProfile?.ProviderType);
@@ -420,15 +432,12 @@ namespace TorreClou.Worker.Services
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{LogPrefix} Failed during download completion | JobId: {JobId}", 
-                    LogPrefix, job.Id);
+                Logger.LogError(ex, "{LogPrefix} Failed during download completion | JobId: {JobId} | ExceptionType: {ExceptionType}", 
+                    LogPrefix, job.Id, ex.GetType().Name);
                 
-                // Mark job as failed - sync or other step failed
-                // Do NOT cleanup block storage on failure (files may be needed for retry)
-                job.Status = JobStatus.FAILED;
-                job.ErrorMessage = $"Failed during download completion: {ex.Message}";
-                await UnitOfWork.Complete();
-                throw; // Re-throw to ensure job is marked as failed
+                // Let base class UserJobBase.ExecuteAsync handle the status transition
+                // to avoid duplicate timeline entries
+                throw;
             }
         }
 

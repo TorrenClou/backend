@@ -43,8 +43,13 @@ namespace TorreClou.Worker
             var hfId = hangfireClient.Enqueue<ITorrentDownloadJob>(x => x.ExecuteAsync(jobId.Value, CancellationToken.None));
 
             job.HangfireJobId = hfId;
-            job.Status = JobStatus.QUEUED;
-            await unitOfWork.Complete();
+            
+            var jobStatusService = services.GetRequiredService<IJobStatusService>();
+            await jobStatusService.TransitionJobStatusAsync(
+                job,
+                JobStatus.QUEUED,
+                StatusChangeSource.System,
+                metadata: new { hangfireJobId = hfId, enqueuedAt = DateTime.UtcNow });
 
             Logger.LogInformation("Enqueued Job {Id} -> HF {HfId}", jobId, hfId);
 

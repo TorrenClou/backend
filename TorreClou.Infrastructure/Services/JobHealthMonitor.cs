@@ -110,7 +110,7 @@ namespace TorreClou.Infrastructure.Services
             {
                 if (!ShouldRecoverJob(job, monitoringApi)) return;
 
-                var newHangfireId = strategy.RecoverJob(job, client);
+                var newHangfireId = await strategy.RecoverJobAsync(job, client);
 
                 if (!string.IsNullOrEmpty(newHangfireId))
                 {
