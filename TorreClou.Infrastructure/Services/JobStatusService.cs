@@ -50,8 +50,12 @@ namespace TorreClou.Infrastructure.Services
                 ChangedAt = DateTime.UtcNow
             };
 
-            // Update job status
+            // Update job status and error message
             job.Status = newStatus;
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                job.ErrorMessage = errorMessage;
+            }
 
             // Add history entry
             unitOfWork.Repository<JobStatusHistory>().Add(historyEntry);
@@ -93,8 +97,12 @@ namespace TorreClou.Infrastructure.Services
                 ChangedAt = DateTime.UtcNow
             };
 
-            // Update sync status
+            // Update sync status and error message
             sync.Status = newStatus;
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                sync.ErrorMessage = errorMessage;
+            }
 
             // Add history entry
             unitOfWork.Repository<SyncStatusHistory>().Add(historyEntry);

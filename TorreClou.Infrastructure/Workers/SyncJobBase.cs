@@ -14,8 +14,10 @@ namespace TorreClou.Infrastructure.Workers
     /// <typeparam name="TJob">The concrete job type for logger categorization.</typeparam>
     public abstract class SyncJobBase<TJob>(
         IUnitOfWork unitOfWork,
-        ILogger<TJob> logger) : JobBase<TJob>(unitOfWork, logger) where TJob : class
+        ILogger<TJob> logger,
+        IJobStatusService jobStatusService) : JobBase<TJob>(unitOfWork, logger) where TJob : class
     {
+        protected IJobStatusService JobStatusService { get; } = jobStatusService;
         /// <summary>
         /// Template method that orchestrates the sync job execution lifecycle.
         /// Subclasses should override ExecuteCoreAsync for specific sync logic.
@@ -39,9 +41,11 @@ namespace TorreClou.Infrastructure.Workers
                 job = await LoadUserJobAsync(sync.JobId);
                 if (job == null)
                 {
-                    sync.Status = SyncStatus.FAILED;
-                    sync.ErrorMessage = "UserJob not found";
-                    await UnitOfWork.Complete();
+                    await JobStatusService.TransitionSyncStatusAsync(
+                        sync,
+                        SyncStatus.FAILED,
+                        StatusChangeSource.Worker,
+                        "UserJob not found");
                     return;
                 }
 
@@ -171,25 +175,33 @@ namespace TorreClou.Infrastructure.Workers
             {
                 if (hasRetries && sync.RetryCount < 3)
                 {
-                    sync.Status = SyncStatus.SYNC_RETRY;
-                    sync.ErrorMessage = errorMessage;
                     sync.RetryCount++;
                     sync.NextRetryAt = DateTime.UtcNow.AddMinutes(5 * sync.RetryCount);
+
+                    await JobStatusService.TransitionSyncStatusAsync(
+                        sync,
+                        SyncStatus.SYNC_RETRY,
+                        StatusChangeSource.Worker,
+                        errorMessage,
+                        new { retryCount = sync.RetryCount, nextRetryAt = sync.NextRetryAt });
 
                     Logger.LogWarning("{LogPrefix} Sync marked as SYNC_RETRY | SyncId: {SyncId} | Error: {Error} | RetryCount: {RetryCount} | NextRetryAt: {NextRetry}",
                         LogPrefix, sync.Id, errorMessage, sync.RetryCount, sync.NextRetryAt);
                 }
                 else
                 {
-                    sync.Status = SyncStatus.FAILED;
-                    sync.ErrorMessage = errorMessage;
                     sync.CompletedAt = DateTime.UtcNow;
+
+                    await JobStatusService.TransitionSyncStatusAsync(
+                        sync,
+                        SyncStatus.FAILED,
+                        StatusChangeSource.Worker,
+                        errorMessage,
+                        new { retryCount = sync.RetryCount, completedAt = sync.CompletedAt });
 
                     Logger.LogError("{LogPrefix} Sync marked as FAILED (no retries remaining) | SyncId: {SyncId} | Error: {Error}",
                         LogPrefix, sync.Id, errorMessage);
                 }
-
-                await UnitOfWork.Complete();
             }
             catch (Exception ex)
             {

@@ -13,8 +13,10 @@ namespace TorreClou.Infrastructure.Workers
     /// <typeparam name="TJob">The concrete job type for logger categorization.</typeparam>
     public abstract class UserJobBase<TJob>(
         IUnitOfWork unitOfWork,
-        ILogger<TJob> logger) : JobBase<TJob>(unitOfWork, logger) where TJob : class
+        ILogger<TJob> logger,
+        IJobStatusService jobStatusService) : JobBase<TJob>(unitOfWork, logger) where TJob : class
     {
+        protected IJobStatusService JobStatusService { get; } = jobStatusService;
         /// <summary>
         /// Template method that orchestrates the job execution lifecycle.
         /// Subclasses should override ExecuteCoreAsync for specific job logic.
@@ -181,12 +183,16 @@ namespace TorreClou.Infrastructure.Workers
                         _ => job.Status // For terminal states (COMPLETED, FAILED, CANCELLED, etc.), keep current status
                     };
                     
-                    job.Status = retryStatus;
-                    job.ErrorMessage = errorMessage;
                     // NextRetryAt will be set by Hangfire's retry mechanism
                     // We estimate it based on typical retry delays: 60s, 300s, 900s
-                    // This is approximate - Hangfire will handle actual scheduling
                     job.NextRetryAt = DateTime.UtcNow.AddMinutes(1); // Conservative estimate
+                    
+                    await JobStatusService.TransitionJobStatusAsync(
+                        job,
+                        retryStatus,
+                        StatusChangeSource.Worker,
+                        errorMessage,
+                        new { hasRetries = true, nextRetryAt = job.NextRetryAt });
                     
                     Logger.LogWarning("{LogPrefix} Job marked as {RetryStatus} | JobId: {JobId} | Error: {Error} | NextRetryAt: {NextRetry}", 
                         LogPrefix, retryStatus, job.Id, errorMessage, job.NextRetryAt);
@@ -201,16 +207,19 @@ namespace TorreClou.Infrastructure.Workers
                         _ => JobStatus.FAILED // Fallback to generic failure state
                     };
                     
-                    job.Status = failureStatus;
-                    job.ErrorMessage = errorMessage;
                     job.CompletedAt = DateTime.UtcNow;
                     job.NextRetryAt = null; // Clear retry time
+                    
+                    await JobStatusService.TransitionJobStatusAsync(
+                        job,
+                        failureStatus,
+                        StatusChangeSource.Worker,
+                        errorMessage,
+                        new { hasRetries = false, completedAt = job.CompletedAt });
                     
                     Logger.LogError("{LogPrefix} Job marked as {FailureStatus} (no retries remaining) | JobId: {JobId} | Error: {Error}", 
                         LogPrefix, failureStatus, job.Id, errorMessage);
                 }
-                
-                await UnitOfWork.Complete();
             }
             catch (Exception ex)
             {

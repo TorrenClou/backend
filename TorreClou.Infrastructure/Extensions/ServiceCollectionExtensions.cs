@@ -58,6 +58,9 @@ namespace TorreClou.Infrastructure.Extensions
             // Transfer Speed Metrics (singleton for metrics collection)
             services.AddSingleton<ITransferSpeedMetrics, TransferSpeedMetrics>();
 
+            // Job Status Service (timeline tracking)
+            services.AddScoped<IJobStatusService, JobStatusService>();
+
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {
                 var interceptor = sp.GetRequiredService<UpdateAuditableEntitiesInterceptor>();

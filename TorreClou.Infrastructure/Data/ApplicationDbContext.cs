@@ -26,6 +26,10 @@ namespace TorreClou.Infrastructure.Data
         public DbSet<Sync> Syncs { get; set; }
         public DbSet<S3SyncProgress> S3SyncProgresses { get; set; }
 
+        // --- Status History (Timeline) ---
+        public DbSet<JobStatusHistory> JobStatusHistories { get; set; }
+        public DbSet<SyncStatusHistory> SyncStatusHistories { get; set; }
+
         // --- Financial & Marketing Entities ---
         public DbSet<Invoice> Invoices { get; set; }
         public DbSet<WalletTransaction> WalletTransactions { get; set; }
@@ -80,6 +84,40 @@ namespace TorreClou.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(s => s.JobId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // --- Job Status History (Timeline) ---
+            builder.Entity<JobStatusHistory>()
+                .Property(h => h.FromStatus).HasConversion<string>();
+            builder.Entity<JobStatusHistory>()
+                .Property(h => h.ToStatus).HasConversion<string>();
+            builder.Entity<JobStatusHistory>()
+                .Property(h => h.Source).HasConversion<string>();
+            builder.Entity<JobStatusHistory>()
+                .Property(h => h.MetadataJson).HasColumnType("jsonb");
+            builder.Entity<JobStatusHistory>()
+                .HasOne(h => h.Job)
+                .WithMany(j => j.StatusHistory)
+                .HasForeignKey(h => h.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<JobStatusHistory>()
+                .HasIndex(h => new { h.JobId, h.ChangedAt });
+
+            // --- Sync Status History (Timeline) ---
+            builder.Entity<SyncStatusHistory>()
+                .Property(h => h.FromStatus).HasConversion<string>();
+            builder.Entity<SyncStatusHistory>()
+                .Property(h => h.ToStatus).HasConversion<string>();
+            builder.Entity<SyncStatusHistory>()
+                .Property(h => h.Source).HasConversion<string>();
+            builder.Entity<SyncStatusHistory>()
+                .Property(h => h.MetadataJson).HasColumnType("jsonb");
+            builder.Entity<SyncStatusHistory>()
+                .HasOne(h => h.Sync)
+                .WithMany(s => s.StatusHistory)
+                .HasForeignKey(h => h.SyncId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<SyncStatusHistory>()
+                .HasIndex(h => new { h.SyncId, h.ChangedAt });
 
             // --- S3 Progress ---
             builder.Entity<S3SyncProgress>()

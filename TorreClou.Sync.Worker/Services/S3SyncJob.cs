@@ -17,7 +17,8 @@ namespace TorreClou.Sync.Worker.Services
         IUnitOfWork unitOfWork,
         ILogger<S3SyncJob> logger,
         IOptions<BackblazeSettings> backblazeSettings,
-        IS3ResumableUploadService s3UploadService) : SyncJobBase<S3SyncJob>(unitOfWork, logger), IS3SyncJob
+        IS3ResumableUploadService s3UploadService,
+        IJobStatusService jobStatusService) : SyncJobBase<S3SyncJob>(unitOfWork, logger, jobStatusService), IS3SyncJob
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
         private const long PartSize = 10 * 1024 * 1024; // 10MB per part
@@ -47,10 +48,14 @@ namespace TorreClou.Sync.Worker.Services
                 Logger.LogInformation("{LogPrefix} Starting | SyncId: {SyncId} | Bucket: {Bucket}",
                     LogPrefix, sync.Id, _backblazeSettings.BucketName);
 
-                sync.Status = SyncStatus.SYNCING;
                 sync.StartedAt = DateTime.UtcNow;
                 sync.LastHeartbeat = DateTime.UtcNow;
-                await UnitOfWork.Complete();
+                
+                await JobStatusService.TransitionSyncStatusAsync(
+                    sync,
+                    SyncStatus.SYNCING,
+                    StatusChangeSource.Worker,
+                    metadata: new { bucket = _backblazeSettings.BucketName, startedAt = sync.StartedAt });
 
                 var filesToUpload = GetFilesToUpload(originalDownloadPath);
                 if (filesToUpload.Length == 0)
@@ -110,11 +115,15 @@ namespace TorreClou.Sync.Worker.Services
                     }
                 }
 
-                sync.Status = SyncStatus.COMPLETED;
                 sync.CompletedAt = DateTime.UtcNow;
                 sync.BytesSynced = overallBytesUploaded;
                 sync.FilesSynced = filesSynced;
-                await UnitOfWork.Complete();
+
+                await JobStatusService.TransitionSyncStatusAsync(
+                    sync,
+                    SyncStatus.COMPLETED,
+                    StatusChangeSource.Worker,
+                    metadata: new { totalBytes = overallBytesUploaded, filesSynced, completedAt = sync.CompletedAt });
 
                 Logger.LogInformation("{LogPrefix} Sync Complete | SyncId: {SyncId}", LogPrefix, sync.Id);
 
@@ -125,9 +134,14 @@ namespace TorreClou.Sync.Worker.Services
             catch (Exception ex)
             {
                 Logger.LogError(ex, "{LogPrefix} Fatal error during sync", LogPrefix);
-                sync.Status = SyncStatus.FAILED;
-                sync.ErrorMessage = ex.Message;
-                await UnitOfWork.Complete();
+                
+                await JobStatusService.TransitionSyncStatusAsync(
+                    sync,
+                    SyncStatus.FAILED,
+                    StatusChangeSource.Worker,
+                    ex.Message,
+                    new { exception = ex.GetType().Name });
+                
                 throw;
             }
         }

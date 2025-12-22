@@ -46,5 +46,10 @@ namespace TorreClou.Core.Entities.Jobs
         public Invoice? Invoice { get; set; }
 
         public string[] SelectedFilePaths { get; set; } = [];
+
+        /// <summary>
+        /// Status change history for this job, providing a complete audit trail.
+        /// </summary>
+        public ICollection<JobStatusHistory> StatusHistory { get; set; } = new List<JobStatusHistory>();
     }
 }
