@@ -1,3 +1,6 @@
+using TorreClou.Core.Enums;
+using System.Collections.Generic;
+
 namespace TorreClou.Core.DTOs.Jobs
 {
     public class JobStatisticsDto
@@ -12,5 +15,16 @@ namespace TorreClou.Core.DTOs.Jobs
         public int UploadingJobs { get; set; }
         public int RetryingJobs { get; set; }
         public int CancelledJobs { get; set; }
+
+        /// <summary>
+        /// Per-status counts for this user. Only statuses with Count > 0 are returned by the service.
+        /// </summary>
+        public List<JobStatusFilterDto> StatusFilters { get; set; } = new();
+    }
+
+    public class JobStatusFilterDto
+    {
+        public JobStatus Status { get; set; }
+        public int Count { get; set; }
     }
 }

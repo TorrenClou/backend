@@ -192,18 +192,30 @@ namespace TorreClou.Application.Services
             var statistics = new JobStatisticsDto
             {
                 TotalJobs = allJobs.Count,
-                ActiveJobs = allJobs.Count(j => j.Status.IsActive()), // <--- Clean
+                ActiveJobs = allJobs.Count(j => j.Status.IsActive()),
                 CompletedJobs = allJobs.Count(j => j.Status.IsCompleted()),
                 FailedJobs = allJobs.Count(j => j.Status.IsFailed()),
 
-                // Granular counts still use direct comparison
+                // Granular counts
                 QueuedJobs = allJobs.Count(j => j.Status == JobStatus.QUEUED),
                 DownloadingJobs = allJobs.Count(j => j.Status == JobStatus.DOWNLOADING),
                 PendingUploadJobs = allJobs.Count(j => j.Status == JobStatus.PENDING_UPLOAD),
                 UploadingJobs = allJobs.Count(j => j.Status == JobStatus.UPLOADING),
-                RetryingJobs = allJobs.Count(j => j.Status.IsRetrying()), // <--- Clean
+                RetryingJobs = allJobs.Count(j => j.Status.IsRetrying()),
                 CancelledJobs = allJobs.Count(j => j.Status.IsCancelled())
             };
+
+            // Build user-based available filters: only statuses with at least one job
+            statistics.StatusFilters = allJobs
+                .GroupBy(j => j.Status)
+                .Select(g => new JobStatusFilterDto
+                {
+                    Status = g.Key,
+                    Count = g.Count()
+                })
+                .Where(f => f.Count > 0)
+                .OrderByDescending(f => f.Count)
+                .ToList();
 
             return Result.Success(statistics);
         }
