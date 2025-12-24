@@ -1,3 +1,5 @@
+using TorreClou.Core.Models.Pricing;
+
 namespace TorreClou.Core.DTOs.Financal
 {
     public class InvoiceDto
@@ -17,6 +19,14 @@ namespace TorreClou.Core.DTOs.Financal
         public DateTime ExpiresAt { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+
+        // Pricing breakdown details
+        public PricingSnapshot? PricingDetails { get; set; }
+        public VoucherDto? Voucher { get; set; }
+        public decimal VoucherDiscountAmount { get; set; }
+        public decimal BasePrice { get; set; }
+        public decimal PriceAfterHealth { get; set; }
+        public bool MinimumChargeApplied { get; set; }
 
         // Computed properties
         public bool IsPaid => PaidAt != null;

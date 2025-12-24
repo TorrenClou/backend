@@ -1,6 +1,8 @@
+using System.Text.Json;
 using TorreClou.Core.DTOs.Common;
 using TorreClou.Core.DTOs.Financal;
 using TorreClou.Core.Interfaces;
+using TorreClou.Core.Models.Pricing;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
 
@@ -26,25 +28,8 @@ namespace TorreClou.Application.Services
             var invoices = await unitOfWork.Repository<Invoice>().ListAsync(spec);
             var totalCount = await unitOfWork.Repository<Invoice>().CountAsync(countSpec);
 
-            // 3. Mapping
-            var items = invoices.Select(invoice => new InvoiceDto
-            {
-                Id = invoice.Id,
-                UserId = invoice.UserId,
-                JobId = invoice.JobId,
-                OriginalAmountInUSD = invoice.OriginalAmountInUSD,
-                FinalAmountInUSD = invoice.FinalAmountInUSD,
-                FinalAmountInNCurrency = invoice.FinalAmountInNCurrency,
-                ExchangeRate = invoice.ExchangeRate,
-                PaidAt = invoice.PaidAt,
-                CancelledAt = invoice.CancelledAt,
-                RefundedAt = invoice.RefundedAt,
-                TorrentFileId = invoice.TorrentFileId,
-                TorrentFileName = invoice.TorrentFile?.FileName,
-                ExpiresAt = invoice.ExpiresAt,
-                CreatedAt = invoice.CreatedAt,
-                UpdatedAt = invoice.UpdatedAt
-            }).ToList();
+            // 3. Mapping with pricing breakdown
+            var items = invoices.Select(invoice => MapInvoiceToDto(invoice)).ToList();
 
             return Result.Success(new PaginatedResult<InvoiceDto>
             {
@@ -60,30 +45,14 @@ namespace TorreClou.Application.Services
             var spec = new BaseSpecification<Invoice>(i => i.Id == invoiceId && i.UserId == userId);
             spec.AddInclude(i => i.TorrentFile);
             spec.AddInclude(i => i.Job);
+            spec.AddInclude(i => i.Voucher);
 
             var invoice = await unitOfWork.Repository<Invoice>().GetEntityWithSpec(spec);
 
             if (invoice == null)
                 return Result<InvoiceDto>.Failure("NOT_FOUND", "Invoice not found.");
 
-            return Result.Success(new InvoiceDto
-            {
-                Id = invoice.Id,
-                UserId = invoice.UserId,
-                JobId = invoice.JobId,
-                OriginalAmountInUSD = invoice.OriginalAmountInUSD,
-                FinalAmountInUSD = invoice.FinalAmountInUSD,
-                FinalAmountInNCurrency = invoice.FinalAmountInNCurrency,
-                ExchangeRate = invoice.ExchangeRate,
-                PaidAt = invoice.PaidAt,
-                CancelledAt = invoice.CancelledAt,
-                RefundedAt = invoice.RefundedAt,
-                TorrentFileId = invoice.TorrentFileId,
-                TorrentFileName = invoice.TorrentFile?.FileName,
-                ExpiresAt = invoice.ExpiresAt,
-                CreatedAt = invoice.CreatedAt,
-                UpdatedAt = invoice.UpdatedAt
-            });
+            return Result.Success(MapInvoiceToDto(invoice));
         }
 
         public async Task<Result<InvoiceStatisticsDto>> GetUserInvoiceStatisticsAsync(int userId)
@@ -105,6 +74,84 @@ namespace TorreClou.Application.Services
                 PaidInvoices = paidCount,
                 UnpaidInvoices = unpaidCount
             });
+        }
+
+        private InvoiceDto MapInvoiceToDto(Invoice invoice)
+        {
+            const decimal MINIMUM_CHARGE = 0.20m;
+
+            // Deserialize pricing snapshot
+            PricingSnapshot? pricingDetails = null;
+            if (!string.IsNullOrEmpty(invoice.PricingSnapshotJson) && invoice.PricingSnapshotJson != "{}")
+            {
+                try
+                {
+                    pricingDetails = JsonSerializer.Deserialize<PricingSnapshot>(invoice.PricingSnapshotJson);
+                }
+                catch
+                {
+                    // If deserialization fails, pricingDetails remains null
+                }
+            }
+
+            // Calculate pricing breakdown from snapshot
+            decimal basePrice = 0;
+            decimal priceAfterHealth = 0;
+            bool minimumChargeApplied = false;
+
+            if (pricingDetails != null)
+            {
+                // Base Price = CalculatedSizeInGb × BaseRatePerGb × RegionMultiplier
+                basePrice = (decimal)pricingDetails.CalculatedSizeInGb * pricingDetails.BaseRatePerGb * (decimal)pricingDetails.RegionMultiplier;
+                
+                // Price After Health = Base Price × HealthMultiplier
+                priceAfterHealth = basePrice * (decimal)pricingDetails.HealthMultiplier;
+
+                // Check if minimum charge was applied
+                // Minimum charge is applied when FinalPrice equals MINIMUM_CHARGE and priceWithHealth was less than MINIMUM_CHARGE
+                minimumChargeApplied = pricingDetails.FinalPrice == MINIMUM_CHARGE && priceAfterHealth < MINIMUM_CHARGE;
+            }
+
+            // Calculate voucher discount amount
+            decimal voucherDiscountAmount = invoice.OriginalAmountInUSD - invoice.FinalAmountInUSD;
+
+            // Map voucher if present
+            VoucherDto? voucherDto = null;
+            if (invoice.Voucher != null)
+            {
+                voucherDto = new VoucherDto
+                {
+                    Code = invoice.Voucher.Code,
+                    Type = invoice.Voucher.Type,
+                    Value = invoice.Voucher.Value,
+                    DiscountAmount = voucherDiscountAmount
+                };
+            }
+
+            return new InvoiceDto
+            {
+                Id = invoice.Id,
+                UserId = invoice.UserId,
+                JobId = invoice.JobId,
+                OriginalAmountInUSD = invoice.OriginalAmountInUSD,
+                FinalAmountInUSD = invoice.FinalAmountInUSD,
+                FinalAmountInNCurrency = invoice.FinalAmountInNCurrency,
+                ExchangeRate = invoice.ExchangeRate,
+                PaidAt = invoice.PaidAt,
+                CancelledAt = invoice.CancelledAt,
+                RefundedAt = invoice.RefundedAt,
+                TorrentFileId = invoice.TorrentFileId,
+                TorrentFileName = invoice.TorrentFile?.FileName,
+                ExpiresAt = invoice.ExpiresAt,
+                CreatedAt = invoice.CreatedAt,
+                UpdatedAt = invoice.UpdatedAt,
+                PricingDetails = pricingDetails,
+                Voucher = voucherDto,
+                VoucherDiscountAmount = voucherDiscountAmount,
+                BasePrice = basePrice,
+                PriceAfterHealth = priceAfterHealth,
+                MinimumChargeApplied = minimumChargeApplied
+            };
         }
     }
 }

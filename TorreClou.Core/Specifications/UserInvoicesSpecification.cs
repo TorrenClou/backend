@@ -15,6 +15,7 @@ namespace TorreClou.Core.Specifications
         {
             AddInclude(invoice => invoice.TorrentFile);
             AddInclude(invoice => invoice.Job);
+            AddInclude(invoice => invoice.Voucher);
             AddOrderByDescending(invoice => invoice.CreatedAt);
             ApplyPaging((pageNumber - 1) * pageSize, pageSize);
         }
