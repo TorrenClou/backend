@@ -32,7 +32,7 @@ namespace TorreClou.Sync.Worker.Services
 
             try
             {
-                if (sync.Status != SyncStatus.PENDING && sync.Status != SyncStatus.SYNC_RETRY)
+                if (sync.Status != SyncStatus.PENDING || sync.Status != SyncStatus.SYNC_RETRY)
                 {
                     Logger.LogWarning("{LogPrefix} Sync invalid state | SyncId: {SyncId} | Status: {Status}",
                         LogPrefix, sync.Id, sync.Status);

@@ -197,7 +197,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             Logger.LogInformation("{LogPrefix} Completed successfully | JobId: {JobId}", LogPrefix, job.Id);
 
-            // 11. Trigger Sync (Optional)
+            // 11. Trigger Sync
             await CreateSyncAndPublishToStreamAsync(job, totalBytes, filesToUpload.Length);
         }
 
@@ -348,7 +348,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                     JobId = job.Id,
                     Status = SyncStatus.PENDING,
                     LocalFilePath = job.DownloadPath,
-                    S3KeyPrefix = $"torrents/{job.Id}",
+                    S3KeyPrefix = $"jobs/{job.Id}",
                     TotalBytes = totalBytes,
                     FilesTotal = filesCount
                 };
