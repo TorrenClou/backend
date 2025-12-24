@@ -113,7 +113,7 @@ namespace TorreClou.Application.Services
         {
             var spec = new UserTransactionsSpecification(userId, pageNumber, pageSize, transactionType);
             var countSpec = new BaseSpecification<WalletTransaction>(x => 
-                x.UserId == userId && (transactionType == null || x.Type == transactionType.Value));
+                x.UserId == userId && (transactionType == null || x.Type == transactionType));
 
             var transactions = await unitOfWork.Repository<WalletTransaction>().ListAsync(spec);
             var totalCount = await unitOfWork.Repository<WalletTransaction>().CountAsync(countSpec);
