@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TorreClou.API.Middleware;
 
 namespace TorreClou.API.Extensions
@@ -6,7 +7,12 @@ namespace TorreClou.API.Extensions
     {
         public static IServiceCollection AddApiServices(this IServiceCollection services, IConfiguration configuration)
         {
-            services.AddControllers();
+            services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    // Serialize enums as strings instead of integers
+                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                });
             services.AddEndpointsApiExplorer();
             services.AddOpenApi();
 
