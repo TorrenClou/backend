@@ -13,6 +13,7 @@ using TorreClou.Application.Services.Google_Drive;
 using TorreClou.Infrastructure.Services.Redis;
 using TorreClou.Infrastructure.Services.S3;
 using TorreClou.Infrastructure.Services.Drive;
+using TorreClou.Infrastructure.Services.Handlers;
 
 namespace TorreClou.Infrastructure.Extensions
 {
@@ -60,6 +61,19 @@ namespace TorreClou.Infrastructure.Extensions
 
             // Job Status Service (timeline tracking)
             services.AddScoped<IJobStatusService, JobStatusService>();
+
+            // Job Handlers (Strategy Pattern for decoupled job processing)
+            // Storage Provider Handlers
+            services.AddScoped<IStorageProviderHandler, GoogleDriveStorageProviderHandler>();
+            
+            // Job Type Handlers
+            services.AddScoped<IJobTypeHandler, TorrentJobTypeHandler>();
+            
+            // Job Cancellation Handlers
+            services.AddScoped<IJobCancellationHandler, TorrentCancellationHandler>();
+            
+            // Job Handler Factory
+            services.AddScoped<IJobHandlerFactory, JobHandlerFactory>();
 
             services.AddDbContext<ApplicationDbContext>((sp, options) =>
             {

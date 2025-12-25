@@ -13,7 +13,13 @@ namespace TorreClou.Core.Interfaces
         Task<Result<JobDto>> GetJobByIdAsync(int userId, int jobId, UserRole? userRole = null);
         Task<Result<JobStatisticsDto>> GetUserJobStatisticsAsync(int userId);
 
-        Task<Result<IReadOnlyList<UserJob>>> GetActiveJobsByStorageProfileIdAsync(int storageProfileId);  
+        Task<Result<IReadOnlyList<UserJob>>> GetActiveJobsByStorageProfileIdAsync(int storageProfileId);
+
+        Task<Result<bool>> RetryJobAsync(int jobId, int userId, UserRole? userRole = null);
+
+        Task<Result<bool>> CancelJobAsync(int jobId, int userId, UserRole? userRole = null);
+
+        Task<Result<bool>> RefundJobAsync(int jobId, int userId);
     }
 }
 

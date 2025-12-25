@@ -156,6 +156,35 @@ namespace TorreClou.Application.Services
             return Result.Success(filters);
         }
 
+        public async Task<Result<int>> ProcessRefundAsync(int userId, decimal amount, int invoiceId, string description)
+        {
+            if (amount <= 0)
+                return Result<int>.Failure("REFUND_ERROR", "Refund amount must be greater than zero.");
+
+            var user = await unitOfWork.Repository<User>().GetByIdAsync(userId);
+            if (user == null)
+                return Result<int>.Failure("USER_ERROR", "User not found.");
+
+            var transaction = new WalletTransaction
+            {
+                UserId = userId,
+                Amount = amount,
+                Type = TransactionType.REFUND,
+                ReferenceId = invoiceId.ToString(),
+                Description = description,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            unitOfWork.Repository<WalletTransaction>().Add(transaction);
+
+            var result = await unitOfWork.Complete();
+
+            if (result <= 0)
+                return Result<int>.Failure("DATABASE_ERROR", "Failed to save refund transaction.");
+
+            return Result<int>.Success(transaction.Id);
+        }
+
         public async Task<Result<WalletTransactionDto>> GetTransactionByIdAsync(int userId, int transactionId)
         {
             var spec = new BaseSpecification<WalletTransaction>(x => x.Id == transactionId && x.UserId == userId);

@@ -1,4 +1,5 @@
 using TorreClou.Core.Enums;
+using TorreClou.Core.Extensions;
 
 namespace TorreClou.Core.DTOs.Jobs
 {
@@ -21,6 +22,7 @@ namespace TorreClou.Core.DTOs.Jobs
         public string[] SelectedFilePaths { get; set; } = [];
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public bool IsRefunded { get; set; }
         
         // Computed properties
         public double ProgressPercentage => TotalBytes > 0 ? (BytesDownloaded / (double)TotalBytes) * 100 : 0;
@@ -30,6 +32,9 @@ namespace TorreClou.Core.DTOs.Jobs
                                Status == JobStatus.UPLOADING || 
                                Status == JobStatus.TORRENT_DOWNLOAD_RETRY || 
                                Status == JobStatus.UPLOAD_RETRY;
+        public bool CanRetry => !IsRefunded && Status.IsFailed() && Status != JobStatus.CANCELLED;
+        public bool CanCancel => Status.IsActive();
+        public bool CanRefund => Status.IsFailed() && !IsRefunded;
 
         /// <summary>
         /// Status change timeline for this job.

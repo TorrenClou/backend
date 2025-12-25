@@ -30,5 +30,15 @@ namespace TorreClou.Core.Extensions
 
         public static bool IsCompleted(this JobStatus status) => status == JobStatus.COMPLETED;
         public static bool IsCancelled(this JobStatus status) => status == JobStatus.CANCELLED;
+
+        public static bool IsCancellable(this JobStatus status)
+        {
+            return status == JobStatus.QUEUED ||
+                   status == JobStatus.DOWNLOADING ||
+                   status == JobStatus.PENDING_UPLOAD ||
+                   status == JobStatus.UPLOADING ||
+                   status == JobStatus.TORRENT_DOWNLOAD_RETRY ||
+                   status == JobStatus.UPLOAD_RETRY;
+        }
     }
 }

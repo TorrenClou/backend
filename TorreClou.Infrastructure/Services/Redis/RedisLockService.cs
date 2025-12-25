@@ -50,6 +50,28 @@ namespace TorreClou.Infrastructure.Services.Redis
                 throw;
             }
         }
+
+        public async Task<bool> DeleteLockAsync(string lockKey)
+        {
+            try
+            {
+                var deleted = await Database.KeyDeleteAsync(lockKey);
+                if (deleted)
+                {
+                    _logger.LogInformation("Deleted RedisLock | Key: {Key}", lockKey);
+                }
+                else
+                {
+                    _logger.LogDebug("RedisLock not found for deletion | Key: {Key}", lockKey);
+                }
+                return deleted;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting RedisLock | Key: {Key}", lockKey);
+                throw;
+            }
+        }
     }
 }
 

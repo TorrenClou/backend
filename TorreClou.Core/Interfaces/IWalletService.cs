@@ -16,6 +16,9 @@ namespace TorreClou.Core.Interfaces
 
         Task<Result<int>> DeductBalanceAsync(int userId, decimal amount, string description);
 
+        // Process refund for a user
+        Task<Result<int>> ProcessRefundAsync(int userId, decimal amount, int invoiceId, string description);
+
         // User: Get paginated transactions with optional type filter
         Task<Result<PaginatedResult<WalletTransactionDto>>> GetUserTransactionsAsync(int userId, int pageNumber, int pageSize, TransactionType? transactionType = null);
 
