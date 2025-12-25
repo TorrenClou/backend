@@ -49,5 +49,26 @@ namespace TorreClou.API.Controllers
             var result = await jobService.GetUserJobStatisticsAsync(UserId);
             return HandleResult(result);
         }
+
+        [HttpPost("{id}/retry")]
+        public async Task<IActionResult> RetryJob(int id)
+        {
+            var result = await jobService.RetryJobAsync(id, UserId, UserRole);
+            return HandleResult(result);
+        }
+
+        [HttpPost("{id}/cancel")]
+        public async Task<IActionResult> CancelJob(int id)
+        {
+            var result = await jobService.CancelJobAsync(id, UserId, UserRole);
+            return HandleResult(result);
+        }
+
+        [HttpPost("{id}/refund")]
+        public async Task<IActionResult> RefundJob(int id)
+        {
+            var result = await jobService.RefundJobAsync(id, UserId);
+            return HandleResult(result);
+        }
     }
 }

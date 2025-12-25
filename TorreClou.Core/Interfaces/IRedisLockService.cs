@@ -14,6 +14,13 @@ namespace TorreClou.Core.Interfaces
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>An IRedisLock instance if acquired successfully, null if lock is already held by another instance</returns>
         Task<IRedisLock?> AcquireLockAsync(string lockKey, TimeSpan expiry, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Deletes a lock by key. Used for cleanup scenarios when the lock instance is not available.
+        /// </summary>
+        /// <param name="lockKey">The unique key for the lock to delete</param>
+        /// <returns>True if the lock was deleted, false if it didn't exist</returns>
+        Task<bool> DeleteLockAsync(string lockKey);
     }
 }
 

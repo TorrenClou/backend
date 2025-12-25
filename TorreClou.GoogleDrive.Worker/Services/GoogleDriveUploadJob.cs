@@ -201,6 +201,25 @@ namespace TorreClou.GoogleDrive.Worker.Services
             await CreateSyncAndPublishToStreamAsync(job, totalBytes, filesToUpload.Length);
         }
 
+        protected override async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
+        {
+            try
+            {
+                // Delete Redis lock before marking as failed
+                await googleDriveService.DeleteUploadLockAsync(job.Id);
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail - lock might not exist or already expired
+                Logger.LogWarning(ex, "{LogPrefix} Failed to delete lock on job failure | JobId: {JobId}", LogPrefix, job.Id);
+            }
+            finally
+            {
+                // Call base implementation to mark job as failed
+                await base.MarkJobFailedAsync(job, errorMessage, hasRetries);
+            }
+        }
+
         // --- Helper Methods ---
 
         private FileInfo[] GetFilesToUpload(string downloadPath)

@@ -480,6 +480,9 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<string>("HangfireUploadJobId")
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsRefunded")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("LastHeartbeat")
                         .HasColumnType("timestamp with time zone");
 

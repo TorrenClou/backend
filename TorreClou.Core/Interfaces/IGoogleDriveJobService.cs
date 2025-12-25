@@ -28,6 +28,13 @@ namespace TorreClou.Core.Interfaces
 
        
         Task<Result<string?>> CheckFileExistsAsync(string folderId, string fileName, string accessToken, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Deletes the upload lock for a Google Drive job.
+        /// </summary>
+        /// <param name="jobId">The job ID</param>
+        /// <returns>True if the lock was deleted, false if it didn't exist</returns>
+        Task<bool> DeleteUploadLockAsync(int jobId);
     }
 }
 

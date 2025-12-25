@@ -17,7 +17,8 @@ namespace TorreClou.Infrastructure.Services.Drive
         IHttpClientFactory httpClientFactory,
         ILogger<GoogleDriveJobService> logger,
         IUploadProgressContext progressContext,
-        IUnitOfWork unitOfWork) : IGoogleDriveJobService
+        IUnitOfWork unitOfWork,
+        IRedisLockService redisLockService) : IGoogleDriveJobService
     {
         private readonly GoogleDriveSettings _settings = settings.Value;
 
@@ -513,6 +514,21 @@ namespace TorreClou.Infrastructure.Services.Drive
             {
                 logger.LogError(ex, "Exception checking file existence: {FileName}", fileName);
                 return Result<string?>.Failure("CHECK_ERROR", $"Error checking file existence: {ex.Message}");
+            }
+        }
+
+        public async Task<bool> DeleteUploadLockAsync(int jobId)
+        {
+            try
+            {
+                var lockKey = $"gdrive:lock:{jobId}";
+                return await redisLockService.DeleteLockAsync(lockKey);
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail - lock might not exist or already expired
+                logger.LogWarning(ex, "Failed to delete upload lock for job {JobId}", jobId);
+                return false;
             }
         }
 
