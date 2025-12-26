@@ -169,7 +169,7 @@ namespace TorreClou.Infrastructure.Workers
         /// If retries are available (determined by Hangfire), sets status to specific retry state based on current phase.
         /// Otherwise, sets appropriate failure state.
         /// </summary>
-        protected async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
+        protected virtual async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
         {
             try
             {
