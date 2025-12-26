@@ -201,7 +201,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             await CreateSyncAndPublishToStreamAsync(job, totalBytes, filesToUpload.Length);
         }
 
-        protected override async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
+        protected  override async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
         {
             try
             {
