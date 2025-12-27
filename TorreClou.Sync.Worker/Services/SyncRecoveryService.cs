@@ -200,7 +200,7 @@ namespace TorreClou.Sync.Worker.Services
                 // Schedule for future execution
                 newHangfireId = backgroundJobClient.Schedule<IS3SyncJob>(
                     x => x.ExecuteAsync(sync.Id, CancellationToken.None),
-                    nextRetryAt.Value);
+                    nextRetryAt);
 
                 logger.LogInformation(
                     "[SYNC_RECOVERY] Scheduled SyncId {SyncId} for {ScheduledAt} | RetryCount={Retry}",
