@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.Extensions.Options;
 using System.Buffers;
 using System.Text.Json;
@@ -25,7 +26,8 @@ namespace TorreClou.Sync.Worker.Services
         private const int ProgressUpdateIntervalSeconds = 10;
 
         protected override string LogPrefix => "[S3:SYNC]";
-
+        [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 }),]
+        [Queue("sync")]
         protected override async Task ExecuteCoreAsync(SyncEntity sync, UserJob job, CancellationToken cancellationToken)
         {
             var originalDownloadPath = sync.LocalFilePath ?? job.DownloadPath;
