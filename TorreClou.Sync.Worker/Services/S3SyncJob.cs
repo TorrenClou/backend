@@ -8,6 +8,8 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
+using TorreClou.Infrastructure.Data;
+using TorreClou.Infrastructure.Services;
 using TorreClou.Infrastructure.Settings;
 using TorreClou.Infrastructure.Workers;
 using SyncEntity = TorreClou.Core.Entities.Jobs.Sync;
@@ -19,22 +21,41 @@ namespace TorreClou.Sync.Worker.Services
         ILogger<S3SyncJob> logger,
         IOptions<BackblazeSettings> backblazeSettings,
         IS3ResumableUploadService s3UploadService,
-        IJobStatusService jobStatusService) : SyncJobBase<S3SyncJob>(unitOfWork, logger, jobStatusService), IS3SyncJob
+        IJobStatusService jobStatusService)
+        : SyncJobBase<S3SyncJob>(unitOfWork, logger, jobStatusService), IS3SyncJob
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
-        private const long PartSize = 10 * 1024 * 1024; // 10MB per part
+        private const long PartSize = 10 * 1024 * 1024; // 10MB
         private const int ProgressUpdateIntervalSeconds = 10;
 
+        // Heartbeat independent from progress
+        private const int HeartbeatIntervalSeconds = 15;
+
         protected override string LogPrefix => "[S3:SYNC]";
-        [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 60, 300, 900 }),]
+
+      
+        // =========================================================
         [Queue("sync")]
+        [AutomaticRetry(
+            Attempts = 3,
+            DelaysInSeconds = new[] { 60, 300, 900 },
+            OnAttemptsExceeded = AttemptsExceededAction.Fail)]
+        public new Task ExecuteAsync(int syncId, CancellationToken cancellationToken = default)
+            => base.ExecuteAsync(syncId, cancellationToken);
+
         protected override async Task ExecuteCoreAsync(SyncEntity sync, UserJob job, CancellationToken cancellationToken)
         {
             var originalDownloadPath = sync.LocalFilePath ?? job.DownloadPath;
 
+            // Start heartbeat loop early (prevents "stuck" when UploadPart takes long)
+            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var heartbeatTask = RunHeartbeatLoopAsync(sync.Id, heartbeatCts.Token);
+
             try
             {
-                if (sync.Status != SyncStatus.PENDING && sync.Status != SyncStatus.SYNC_RETRY && sync.Status != SyncStatus.SYNCING)
+                if (sync.Status != SyncStatus.PENDING &&
+                    sync.Status != SyncStatus.SYNC_RETRY &&
+                    sync.Status != SyncStatus.SYNCING)
                 {
                     Logger.LogWarning("{LogPrefix} Sync invalid state | SyncId: {SyncId} | Status: {Status}",
                         LogPrefix, sync.Id, sync.Status);
@@ -52,7 +73,7 @@ namespace TorreClou.Sync.Worker.Services
 
                 sync.StartedAt = DateTime.UtcNow;
                 sync.LastHeartbeat = DateTime.UtcNow;
-                
+
                 await JobStatusService.TransitionSyncStatusAsync(
                     sync,
                     SyncStatus.SYNCING,
@@ -71,18 +92,20 @@ namespace TorreClou.Sync.Worker.Services
                 {
                     sync.FilesTotal = filesToUpload.Length;
                     sync.TotalBytes = totalBytes;
+                    await UnitOfWork.Complete();
                 }
 
                 var overallBytesUploaded = sync.BytesSynced;
                 var filesSynced = sync.FilesSynced;
-                var startTime = sync.StartedAt ?? DateTime.UtcNow;
                 var lastProgressUpdate = DateTime.UtcNow;
 
-                // Loop through files, skipping already synced ones
                 for (int i = filesSynced; i < filesToUpload.Length; i++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var file = filesToUpload[i];
                     var relativePath = Path.GetRelativePath(originalDownloadPath, file.FullName);
+
                     var s3Key = sync.S3KeyPrefix != null
                         ? $"{sync.S3KeyPrefix}/{relativePath.Replace('\\', '/')}"
                         : $"torrents/{job.Id}/{relativePath.Replace('\\', '/')}";
@@ -100,16 +123,16 @@ namespace TorreClou.Sync.Worker.Services
                     overallBytesUploaded += file.Length;
                     filesSynced++;
 
-                    // Throttle DB updates
+                    // Throttle DB updates (progress)
                     var now = DateTime.UtcNow;
                     if ((now - lastProgressUpdate).TotalSeconds >= ProgressUpdateIntervalSeconds)
                     {
                         sync.BytesSynced = overallBytesUploaded;
                         sync.FilesSynced = filesSynced;
-                        sync.LastHeartbeat = now;
+                        sync.LastHeartbeat = now; // extra safety (heartbeat loop also runs)
                         await UnitOfWork.Complete();
 
-                        var percent = overallBytesUploaded / (double)totalBytes * 100;
+                        var percent = totalBytes == 0 ? 0 : (overallBytesUploaded / (double)totalBytes) * 100;
                         Logger.LogInformation("{LogPrefix} Progress: {Percent:F1}% | {Uploaded}/{Total} MB",
                             LogPrefix, percent, overallBytesUploaded >> 20, totalBytes >> 20);
 
@@ -129,7 +152,11 @@ namespace TorreClou.Sync.Worker.Services
 
                 Logger.LogInformation("{LogPrefix} Sync Complete | SyncId: {SyncId}", LogPrefix, sync.Id);
 
-                // Safe to cleanup now as this is the final step in pipeline
+                // Stop heartbeat now (completed)
+                heartbeatCts.Cancel();
+                try { await heartbeatTask; } catch { /* ignore */ }
+
+                // Safe cleanup (final step)
                 await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 await CleanupBlockStorageAsync(originalDownloadPath);
             }
@@ -137,10 +164,49 @@ namespace TorreClou.Sync.Worker.Services
             {
                 Logger.LogError(ex, "{LogPrefix} Fatal error during sync | SyncId: {SyncId} | ExceptionType: {ExceptionType}",
                     LogPrefix, sync.Id, ex.GetType().Name);
-                
-                // Let base class SyncJobBase.ExecuteAsync handle the status transition
-                // to avoid duplicate timeline entries
-                throw;
+
+                // stop heartbeat before rethrow
+                heartbeatCts.Cancel();
+                try { await heartbeatTask; } catch { /* ignore */ }
+
+                throw; // let SyncJobBase handle transition + hangfire retry
+            }
+            finally
+            {
+                // Ensure heartbeat stops
+                heartbeatCts.Cancel();
+            }
+        }
+
+        private async Task RunHeartbeatLoopAsync(int syncId, CancellationToken ct)
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(HeartbeatIntervalSeconds), ct);
+
+                    // Reload minimal entity to avoid EF tracking conflicts
+                    var hbSpec = new BaseSpecification<SyncEntity>(s => s.Id == syncId);
+                    var current = await UnitOfWork.Repository<SyncEntity>().GetEntityWithSpec(hbSpec);
+
+                    if (current == null) return;
+
+                    // Only heartbeat while actively syncing
+                    if (current.Status != SyncStatus.SYNCING) return;
+
+                    current.LastHeartbeat = DateTime.UtcNow;
+                    await UnitOfWork.Complete();
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "{LogPrefix} Heartbeat loop failed | SyncId: {SyncId}", LogPrefix, syncId);
+                    // keep loop running
+                }
             }
         }
 
@@ -148,11 +214,11 @@ namespace TorreClou.Sync.Worker.Services
         {
             try
             {
-                // 1. Check Existence
+                // 1) Exists?
                 var existsResult = await s3UploadService.CheckObjectExistsAsync(_backblazeSettings.BucketName, s3Key, cancellationToken);
                 if (existsResult.IsSuccess && existsResult.Value) return Result.Success();
 
-                // 2. Load/Create Progress Record
+                // 2) Load/Create progress record
                 var existingProgress = await UnitOfWork.Repository<S3SyncProgress>()
                     .GetEntityWithSpec(new BaseSpecification<S3SyncProgress>(p => p.SyncId == sync.Id && p.S3Key == s3Key));
 
@@ -160,27 +226,25 @@ namespace TorreClou.Sync.Worker.Services
                 string? uploadId = null;
                 List<PartETag>? existingParts = null;
 
-                // 3. Resume Logic
+                // 3) Resume logic
                 if (progress != null && progress.Status == SyncStatus.SYNCING && !string.IsNullOrEmpty(progress.UploadId))
                 {
                     uploadId = progress.UploadId;
                     existingParts = ParsePartETags(progress.PartETags);
 
-                    // Verify with S3
                     var listPartsResult = await s3UploadService.ListPartsAsync(_backblazeSettings.BucketName, s3Key, uploadId, cancellationToken);
                     if (listPartsResult.IsFailure)
                     {
                         Logger.LogWarning("{LogPrefix} Remote upload session not found, restarting | Key: {Key}", LogPrefix, s3Key);
-                        uploadId = null; // Forces restart
+                        uploadId = null;
                     }
                     else
                     {
-                        // ROBUST MERGE: S3 is the source of truth
                         existingParts = MergePartETags(existingParts, listPartsResult.Value);
                     }
                 }
 
-                // 4. Initialize if needed
+                // 4) Init if needed
                 if (string.IsNullOrEmpty(uploadId))
                 {
                     var init = await s3UploadService.InitiateUploadAsync(_backblazeSettings.BucketName, s3Key, file.Length, cancellationToken: cancellationToken);
@@ -189,7 +253,6 @@ namespace TorreClou.Sync.Worker.Services
                     uploadId = init.Value;
                     var totalParts = (int)Math.Ceiling((double)file.Length / PartSize);
 
-                    // Create new progress entry
                     progress = new S3SyncProgress
                     {
                         JobId = job.Id,
@@ -203,21 +266,26 @@ namespace TorreClou.Sync.Worker.Services
                         StartedAt = DateTime.UtcNow,
                         TotalBytes = file.Length
                     };
+
                     UnitOfWork.Repository<S3SyncProgress>().Add(progress);
                     await UnitOfWork.Complete();
+
                     existingParts = [];
                 }
                 else
                 {
                     progress!.UpdatedAt = DateTime.UtcNow;
                     await UnitOfWork.Complete();
+                    existingParts ??= [];
                 }
 
-                // 5. Upload Loop (Memory Optimized)
+                // 5) Upload loop (memory optimized)
                 await using var fileStream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
-                var startPartNumber = existingParts!.Count > 0 ? existingParts.Max(p => p.PartNumber) + 1 : 1;
 
-                // RENT buffer from pool to avoid GC pressure
+                var startPartNumber = existingParts.Count > 0
+                    ? existingParts.Max(p => p.PartNumber) + 1
+                    : 1;
+
                 var buffer = ArrayPool<byte>.Shared.Rent((int)PartSize);
 
                 try
@@ -235,7 +303,6 @@ namespace TorreClou.Sync.Worker.Services
                         if (bytesRead != currentPartSize)
                             return Result.Failure("READ_ERROR", $"Read mismatch part {partNumber}");
 
-                        // Create wrapper stream around rented buffer (no copy)
                         using var partStream = new MemoryStream(buffer, 0, bytesRead);
 
                         var uploadPart = await s3UploadService.UploadPartAsync(
@@ -245,27 +312,27 @@ namespace TorreClou.Sync.Worker.Services
 
                         existingParts.Add(uploadPart.Value);
 
-                        // Update DB
                         progress.PartsCompleted = existingParts.Count;
                         progress.BytesUploaded = Math.Min(progress.PartsCompleted * PartSize, file.Length);
                         progress.PartETags = SerializePartETags(existingParts);
                         progress.UpdatedAt = DateTime.UtcNow;
+
                         await UnitOfWork.Complete();
                     }
                 }
                 finally
                 {
-                    // RETURN buffer to pool
                     ArrayPool<byte>.Shared.Return(buffer);
                 }
 
-                // 6. Complete
+                // 6) Complete
                 var comp = await s3UploadService.CompleteUploadAsync(_backblazeSettings.BucketName, s3Key, uploadId, existingParts, cancellationToken);
                 if (comp.IsFailure) return Result.Failure(comp.Error.Code, comp.Error.Message);
 
                 progress.Status = SyncStatus.COMPLETED;
                 progress.CompletedAt = DateTime.UtcNow;
-                UnitOfWork.Repository<S3SyncProgress>().Delete(progress); // Clean up tracking row
+
+                UnitOfWork.Repository<S3SyncProgress>().Delete(progress);
                 await UnitOfWork.Complete();
 
                 return Result.Success();
@@ -276,15 +343,12 @@ namespace TorreClou.Sync.Worker.Services
             }
         }
 
-        // --- Optimized Helpers ---
-
+        // Helpers
         private List<PartETag> MergePartETags(List<PartETag>? stored, List<PartETag> s3Parts)
         {
-            // S3 is authoritative source of truth
             var merged = new Dictionary<int, PartETag>();
             foreach (var p in s3Parts) merged[p.PartNumber] = p;
 
-            // Fill gaps from DB if necessary (rare)
             if (stored != null)
             {
                 foreach (var p in stored)
@@ -292,6 +356,7 @@ namespace TorreClou.Sync.Worker.Services
                     if (!merged.ContainsKey(p.PartNumber)) merged[p.PartNumber] = p;
                 }
             }
+
             return merged.Values.OrderBy(p => p.PartNumber).ToList();
         }
 
@@ -301,33 +366,44 @@ namespace TorreClou.Sync.Worker.Services
             {
                 var dir = new DirectoryInfo(downloadPath);
                 if (!dir.Exists) return [];
+
                 return dir.GetFiles("*", SearchOption.AllDirectories)
-                    .Where(f => !f.Name.EndsWith(".torrent") && !f.Name.EndsWith(".dht") && !f.Name.EndsWith(".fresume"))
+                    .Where(f =>
+                        !f.Name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) &&
+                        !f.Name.EndsWith(".dht", StringComparison.OrdinalIgnoreCase) &&
+                        !f.Name.EndsWith(".fresume", StringComparison.OrdinalIgnoreCase))
                     .ToArray();
             }
-            catch { return []; }
+            catch
+            {
+                return [];
+            }
         }
 
         private Task CleanupBlockStorageAsync(string path)
         {
             try
             {
-                if (Directory.Exists(path)) Directory.Delete(path, true);
+                if (Directory.Exists(path))
+                    Directory.Delete(path, true);
+
                 Logger.LogInformation("{LogPrefix} Deleted local files | Path: {Path}", LogPrefix, path);
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "{LogPrefix} Cleanup failed (non-critical)", LogPrefix);
+                Logger.LogWarning(ex, "{LogPrefix} Cleanup failed (non-critical) | Path: {Path}", LogPrefix, path);
             }
+
             return Task.CompletedTask;
         }
 
-        // --- Serialization Helpers (Keep as is) ---
+        // Serialization helpers
         private List<PartETag> ParsePartETags(string json)
         {
             try { return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<PartETag>>(json) ?? []; }
             catch { return []; }
         }
+
         private string SerializePartETags(List<PartETag> parts) => JsonSerializer.Serialize(parts);
     }
 }
