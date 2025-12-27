@@ -66,7 +66,7 @@ namespace TorreClou.Sync.Worker.Services
 
             // Query candidates for recovery:
             // 1. SYNC_RETRY: NextRetryAt is null OR due, AND hasn't exceeded max retries
-            // 2. SYNCING: stale heartbeat (job died while running)
+            // 2. SYNCING: stale heartbeat OR never started (both heartbeat and startedAt are null)
             // 3. PENDING: stale with no HangfireJobId (never picked up properly)
             var spec = new BaseSpecification<SyncEntity>(s =>
                 // SYNC_RETRY jobs that are due for retry
@@ -74,21 +74,28 @@ namespace TorreClou.Sync.Worker.Services
                     s.RetryCount < MaxRetryCount &&
                     (s.NextRetryAt == null || s.NextRetryAt <= now)) ||
 
-                // SYNCING jobs with stale heartbeat (worker died)
+                // SYNCING jobs with stale heartbeat (worker died) OR never actually started
                 (s.Status == SyncStatus.SYNCING &&
                     s.RetryCount < MaxRetryCount &&
                     (
+                        // Case 1: Has heartbeat but it's stale
                         (s.LastHeartbeat != null && s.LastHeartbeat < staleCutoff) ||
-                        (s.LastHeartbeat == null && s.StartedAt != null && s.StartedAt < staleCutoff)
+                        // Case 2: No heartbeat but has startedAt that's stale
+                        (s.LastHeartbeat == null && s.StartedAt != null && s.StartedAt < staleCutoff) ||
+                        // Case 3: SYNCING but never actually started (Hangfire job failed before execution)
+                        // Use CreatedAt as fallback - if job was created before staleCutoff and never started
+                        (s.LastHeartbeat == null && s.StartedAt == null && s.CreatedAt < staleCutoff)
                     )) ||
 
-                // PENDING jobs that were never picked up (stale StartedAt or due NextRetryAt)
+                // PENDING jobs that were never picked up (stale StartedAt or due NextRetryAt or stale CreatedAt)
                 (s.Status == SyncStatus.PENDING &&
                     s.RetryCount < MaxRetryCount &&
                     string.IsNullOrEmpty(s.HangfireJobId) &&
                     (
                         (s.NextRetryAt != null && s.NextRetryAt <= now) ||
-                        (s.StartedAt != null && s.StartedAt < staleCutoff)
+                        (s.StartedAt != null && s.StartedAt < staleCutoff) ||
+                        // Also recover PENDING jobs that have been waiting too long
+                        (s.StartedAt == null && s.CreatedAt < staleCutoff)
                     ))
             );
 
