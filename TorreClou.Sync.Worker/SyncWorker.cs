@@ -31,6 +31,7 @@ namespace TorreClou.Sync.Worker
             // 2. Resolve Services
             var unitOfWork = services.GetRequiredService<IUnitOfWork>();
             var backgroundJobClient = services.GetRequiredService<IBackgroundJobClient>();
+            var jobStatusService = services.GetRequiredService<IJobStatusService>();
 
             // 3. Load Sync Entity
             var syncRepo = unitOfWork.Repository<SyncEntity>();
@@ -42,34 +43,39 @@ namespace TorreClou.Sync.Worker
                 return true;
             }
 
-            // 4. Validate State
-            if (sync.Status != SyncStatus.PENDING && sync.Status != SyncStatus.SYNC_RETRY)
+            // 4. Validate State - Accept PENDING, SYNC_RETRY, or SYNCING (for recovery scenarios)
+            if (sync.Status != SyncStatus.PENDING && 
+                sync.Status != SyncStatus.SYNC_RETRY && 
+                sync.Status != SyncStatus.SYNCING)
             {
                 Logger.LogWarning("[SYNC_WORKER] Sync {Id} is {Status}, skipping.", syncId, sync.Status);
                 return true;
             }
 
-            // CRITICAL: Idempotency Check
-            // Prevents duplicate Hangfire jobs if worker crashes before ACK
-            // Note: Ensure SyncEntity has a 'HangfireJobId' property (like UserJob does)
-            if (!string.IsNullOrEmpty(sync.HangfireJobId))
+            // 5. Idempotency Check - Skip if already has a valid Hangfire job
+            // BUT allow re-enqueue if status is SYNC_RETRY (recovery cleared the old job)
+            if (!string.IsNullOrEmpty(sync.HangfireJobId) && sync.Status != SyncStatus.SYNC_RETRY)
             {
                 Logger.LogInformation("[SYNC_WORKER] Sync {Id} already enqueued (HF: {HfId}). Skipping.",
                     syncId, sync.HangfireJobId);
                 return true;
             }
 
-            // 5. Enqueue to Hangfire
+            // 6. Enqueue to Hangfire
             Logger.LogInformation("[SYNC_WORKER] Enqueuing Sync {Id}...", syncId);
 
             var hangfireJobId = backgroundJobClient.Enqueue<IS3SyncJob>(
                 service => service.ExecuteAsync(syncId, CancellationToken.None));
 
-            // 6. Update State & Persist ID 
+            // 7. Update HangfireJobId and transition status using JobStatusService
             sync.HangfireJobId = hangfireJobId;
-            sync.Status = SyncStatus.SYNCING; 
 
-            await unitOfWork.Complete();
+            // Transition to SYNCING with full audit trail
+            await jobStatusService.TransitionSyncStatusAsync(
+                sync,
+                SyncStatus.SYNCING,
+                StatusChangeSource.System,
+                metadata: new { hangfireJobId, enqueuedAt = DateTime.UtcNow, fromStream = true });
 
             Logger.LogInformation("[SYNC_WORKER] Success | SyncId: {Id} -> HF: {HfId}", syncId, hangfireJobId);
 

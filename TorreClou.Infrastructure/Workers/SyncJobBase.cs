@@ -18,6 +18,13 @@ namespace TorreClou.Infrastructure.Workers
         IJobStatusService jobStatusService) : JobBase<TJob>(unitOfWork, logger) where TJob : class
     {
         protected IJobStatusService JobStatusService { get; } = jobStatusService;
+
+        /// <summary>
+        /// Maximum number of retries before marking a sync as permanently failed.
+        /// Should match SyncRecoveryService.MaxRetryCount.
+        /// </summary>
+        protected const int MaxRetryCount = 5;
+
         /// <summary>
         /// Template method that orchestrates the sync job execution lifecycle.
         /// Subclasses should override ExecuteCoreAsync for specific sync logic.
@@ -57,7 +64,11 @@ namespace TorreClou.Infrastructure.Workers
                     return;
                 }
 
-                // 4. Execute the core sync logic
+                // 4. Set initial heartbeat to signal job has started
+                // This happens BEFORE ExecuteCoreAsync so recovery can detect active jobs
+                await SetInitialHeartbeatAsync(sync);
+
+                // 5. Execute the core sync logic
                 await ExecuteCoreAsync(sync, job, cancellationToken);
             }
             catch (OperationCanceledException)
@@ -86,6 +97,30 @@ namespace TorreClou.Infrastructure.Workers
         /// Core sync execution logic. Override in derived classes.
         /// </summary>
         protected abstract Task ExecuteCoreAsync(SyncEntity sync, UserJob job, CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Sets initial heartbeat and started timestamp when job begins processing.
+        /// This helps recovery service detect jobs that have actually started.
+        /// </summary>
+        protected virtual async Task SetInitialHeartbeatAsync(SyncEntity sync)
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                sync.StartedAt ??= now;
+                sync.LastHeartbeat = now;
+                await UnitOfWork.Complete();
+
+                Logger.LogDebug("{LogPrefix} Set initial heartbeat | SyncId: {SyncId} | Heartbeat: {Heartbeat}",
+                    LogPrefix, sync.Id, now);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal - log warning and continue
+                Logger.LogWarning(ex, "{LogPrefix} Failed to set initial heartbeat | SyncId: {SyncId}",
+                    LogPrefix, sync.Id);
+            }
+        }
 
         /// <summary>
         /// Configure the specification with sync-specific includes.
@@ -168,39 +203,43 @@ namespace TorreClou.Infrastructure.Workers
 
         /// <summary>
         /// Marks the sync as failed or retry with an error message.
+        /// Uses MaxRetryCount constant for consistency with SyncRecoveryService.
         /// </summary>
         protected async Task MarkSyncFailedAsync(SyncEntity sync, string errorMessage, bool hasRetries = false)
         {
             try
             {
-                if (hasRetries && sync.RetryCount < 3)
+                if (hasRetries && sync.RetryCount < MaxRetryCount)
                 {
                     sync.RetryCount++;
-                    sync.NextRetryAt = DateTime.UtcNow.AddMinutes(5 * sync.RetryCount);
+                    // Exponential backoff: 1 min, 2 min, 4 min, 8 min, 16 min
+                    var delayMinutes = (int)Math.Pow(2, Math.Min(sync.RetryCount - 1, 4));
+                    sync.NextRetryAt = DateTime.UtcNow.AddMinutes(delayMinutes);
 
                     await JobStatusService.TransitionSyncStatusAsync(
                         sync,
                         SyncStatus.SYNC_RETRY,
                         StatusChangeSource.Worker,
                         errorMessage,
-                        new { retryCount = sync.RetryCount, nextRetryAt = sync.NextRetryAt });
+                        new { retryCount = sync.RetryCount, nextRetryAt = sync.NextRetryAt, maxRetries = MaxRetryCount });
 
-                    Logger.LogWarning("{LogPrefix} Sync marked as SYNC_RETRY | SyncId: {SyncId} | Error: {Error} | RetryCount: {RetryCount} | NextRetryAt: {NextRetry}",
-                        LogPrefix, sync.Id, errorMessage, sync.RetryCount, sync.NextRetryAt);
+                    Logger.LogWarning("{LogPrefix} Sync marked as SYNC_RETRY | SyncId: {SyncId} | Error: {Error} | RetryCount: {RetryCount}/{MaxRetries} | NextRetryAt: {NextRetry}",
+                        LogPrefix, sync.Id, errorMessage, sync.RetryCount, MaxRetryCount, sync.NextRetryAt);
                 }
                 else
                 {
                     sync.CompletedAt = DateTime.UtcNow;
+                    sync.NextRetryAt = null;
 
                     await JobStatusService.TransitionSyncStatusAsync(
                         sync,
                         SyncStatus.FAILED,
                         StatusChangeSource.Worker,
                         errorMessage,
-                        new { retryCount = sync.RetryCount, completedAt = sync.CompletedAt });
+                        new { retryCount = sync.RetryCount, completedAt = sync.CompletedAt, exhaustedRetries = hasRetries });
 
-                    Logger.LogError("{LogPrefix} Sync marked as FAILED (no retries remaining) | SyncId: {SyncId} | Error: {Error}",
-                        LogPrefix, sync.Id, errorMessage);
+                    Logger.LogError("{LogPrefix} Sync marked as FAILED (no retries remaining) | SyncId: {SyncId} | Error: {Error} | RetryCount: {RetryCount}/{MaxRetries}",
+                        LogPrefix, sync.Id, errorMessage, sync.RetryCount, MaxRetryCount);
                 }
             }
             catch (Exception ex)
@@ -218,6 +257,7 @@ namespace TorreClou.Infrastructure.Workers
             {
                 sync.BytesSynced = bytesSynced;
                 sync.FilesSynced = filesSynced;
+                sync.LastHeartbeat = DateTime.UtcNow; // Update heartbeat with progress
                 await UnitOfWork.Complete();
             }
             catch (Exception ex)
@@ -227,4 +267,3 @@ namespace TorreClou.Infrastructure.Workers
         }
     }
 }
-
