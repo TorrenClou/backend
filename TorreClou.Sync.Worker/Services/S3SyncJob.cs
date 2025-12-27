@@ -47,38 +47,57 @@ namespace TorreClou.Sync.Worker.Services
         {
             var originalDownloadPath = sync.LocalFilePath ?? job.DownloadPath;
 
-            // Start heartbeat loop early (prevents "stuck" when UploadPart takes long)
+            // 1. Status validation BEFORE starting heartbeat loop
+            // Accept: PENDING (new job), SYNC_RETRY (recovery), SYNCING (already transitioning)
+            if (sync.Status != SyncStatus.PENDING &&
+                sync.Status != SyncStatus.SYNC_RETRY &&
+                sync.Status != SyncStatus.SYNCING)
+            {
+                Logger.LogWarning("{LogPrefix} Sync invalid state | SyncId: {SyncId} | Status: {Status}",
+                    LogPrefix, sync.Id, sync.Status);
+                return;
+            }
+
+            // 2. Duplicate execution detection for SYNCING jobs
+            // If already SYNCING with fresh heartbeat, another worker is processing it
+            if (sync.Status == SyncStatus.SYNCING && sync.LastHeartbeat != null)
+            {
+                var heartbeatAge = DateTime.UtcNow - sync.LastHeartbeat.Value;
+                if (heartbeatAge.TotalSeconds < HeartbeatIntervalSeconds * 3)
+                {
+                    Logger.LogWarning("{LogPrefix} Duplicate execution detected | SyncId: {SyncId} | LastHeartbeat: {LH} ({Age}s ago)",
+                        LogPrefix, sync.Id, sync.LastHeartbeat, (int)heartbeatAge.TotalSeconds);
+                    return;
+                }
+            }
+
+            // 3. Validate download path
+            if (string.IsNullOrEmpty(originalDownloadPath) || !Directory.Exists(originalDownloadPath))
+            {
+                await MarkSyncFailedAsync(sync, $"Download directory missing: {originalDownloadPath}", hasRetries: false);
+                return;
+            }
+
+            // 4. Start heartbeat loop (initial heartbeat already set by base class)
+            // The base class SetInitialHeartbeatAsync already set StartedAt and LastHeartbeat
             using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var heartbeatTask = RunHeartbeatLoopAsync(sync.Id, heartbeatCts.Token);
 
             try
             {
-                if (sync.Status != SyncStatus.PENDING &&
-                    sync.Status != SyncStatus.SYNC_RETRY &&
-                    sync.Status != SyncStatus.SYNCING)
-                {
-                    Logger.LogWarning("{LogPrefix} Sync invalid state | SyncId: {SyncId} | Status: {Status}",
-                        LogPrefix, sync.Id, sync.Status);
-                    return;
-                }
-
-                if (string.IsNullOrEmpty(originalDownloadPath) || !Directory.Exists(originalDownloadPath))
-                {
-                    await MarkSyncFailedAsync(sync, $"Download directory missing: {originalDownloadPath}", hasRetries: false);
-                    return;
-                }
-
                 Logger.LogInformation("{LogPrefix} Starting | SyncId: {SyncId} | Bucket: {Bucket}",
                     LogPrefix, sync.Id, _backblazeSettings.BucketName);
 
-                sync.StartedAt = DateTime.UtcNow;
-                sync.LastHeartbeat = DateTime.UtcNow;
-
-                await JobStatusService.TransitionSyncStatusAsync(
-                    sync,
-                    SyncStatus.SYNCING,
-                    StatusChangeSource.Worker,
-                    metadata: new { bucket = _backblazeSettings.BucketName, startedAt = sync.StartedAt });
+                // 6. Transition to SYNCING status only if not already SYNCING
+                // (For recovery scenarios where job was already SYNCING or SYNC_RETRY)
+                if (sync.Status != SyncStatus.SYNCING)
+                {
+                    await JobStatusService.TransitionSyncStatusAsync(
+                        sync,
+                        SyncStatus.SYNCING,
+                        StatusChangeSource.Worker,
+                        metadata: new { bucket = _backblazeSettings.BucketName, startedAt = sync.StartedAt });
+                }
 
                 var filesToUpload = GetFilesToUpload(originalDownloadPath);
                 if (filesToUpload.Length == 0)
@@ -124,19 +143,19 @@ namespace TorreClou.Sync.Worker.Services
                     filesSynced++;
 
                     // Throttle DB updates (progress)
-                    var now = DateTime.UtcNow;
-                    if ((now - lastProgressUpdate).TotalSeconds >= ProgressUpdateIntervalSeconds)
+                    var progressNow = DateTime.UtcNow;
+                    if ((progressNow - lastProgressUpdate).TotalSeconds >= ProgressUpdateIntervalSeconds)
                     {
                         sync.BytesSynced = overallBytesUploaded;
                         sync.FilesSynced = filesSynced;
-                        sync.LastHeartbeat = now; // extra safety (heartbeat loop also runs)
+                        sync.LastHeartbeat = progressNow; // extra safety (heartbeat loop also runs)
                         await UnitOfWork.Complete();
 
                         var percent = totalBytes == 0 ? 0 : (overallBytesUploaded / (double)totalBytes) * 100;
                         Logger.LogInformation("{LogPrefix} Progress: {Percent:F1}% | {Uploaded}/{Total} MB",
                             LogPrefix, percent, overallBytesUploaded >> 20, totalBytes >> 20);
 
-                        lastProgressUpdate = now;
+                        lastProgressUpdate = progressNow;
                     }
                 }
 
