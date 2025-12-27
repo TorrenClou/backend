@@ -1,4 +1,5 @@
 using Hangfire;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Buffers;
 using System.Text.Json;
@@ -21,10 +22,12 @@ namespace TorreClou.Sync.Worker.Services
         ILogger<S3SyncJob> logger,
         IOptions<BackblazeSettings> backblazeSettings,
         IS3ResumableUploadService s3UploadService,
-        IJobStatusService jobStatusService)
+        IJobStatusService jobStatusService,
+        IServiceScopeFactory serviceScopeFactory)
         : SyncJobBase<S3SyncJob>(unitOfWork, logger, jobStatusService), IS3SyncJob
     {
         private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
+        private readonly IServiceScopeFactory _serviceScopeFactory = serviceScopeFactory;
         private const long PartSize = 10 * 1024 * 1024; // 10MB
         private const int ProgressUpdateIntervalSeconds = 10;
 
@@ -199,15 +202,20 @@ namespace TorreClou.Sync.Worker.Services
 
         private async Task RunHeartbeatLoopAsync(int syncId, CancellationToken ct)
         {
+            // CRITICAL: Use a separate scope to avoid DbContext concurrency issues
+            // The main upload thread uses the injected UnitOfWork, this loop uses its own
             while (!ct.IsCancellationRequested)
             {
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(HeartbeatIntervalSeconds), ct);
 
-                    // Reload minimal entity to avoid EF tracking conflicts
+                    // Create a new scope for each heartbeat to get a fresh DbContext
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var scopedUnitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
                     var hbSpec = new BaseSpecification<SyncEntity>(s => s.Id == syncId);
-                    var current = await UnitOfWork.Repository<SyncEntity>().GetEntityWithSpec(hbSpec);
+                    var current = await scopedUnitOfWork.Repository<SyncEntity>().GetEntityWithSpec(hbSpec);
 
                     if (current == null) return;
 
@@ -215,7 +223,7 @@ namespace TorreClou.Sync.Worker.Services
                     if (current.Status != SyncStatus.SYNCING) return;
 
                     current.LastHeartbeat = DateTime.UtcNow;
-                    await UnitOfWork.Complete();
+                    await scopedUnitOfWork.Complete();
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
