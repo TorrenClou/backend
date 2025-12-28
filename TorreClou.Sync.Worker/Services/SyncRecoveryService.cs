@@ -134,7 +134,6 @@ namespace TorreClou.Sync.Worker.Services
 
         private async Task RecoverSingleSyncAsync(
             SyncEntity sync,
-            IUnitOfWork unitOfWork,
             IBackgroundJobClient backgroundJobClient,
             IJobStatusService jobStatusService,
             IMonitoringApi? monitoringApi,
@@ -197,8 +196,6 @@ namespace TorreClou.Sync.Worker.Services
             // Clear old HangfireJobId before creating new one
             sync.HangfireJobId = null;
 
-            // DON'T set LastHeartbeat here - only the running job should update heartbeat
-            // This prevents false "alive" signals before the job actually starts
 
             // Schedule the job at NextRetryAt (respects backoff) instead of immediate enqueue
             string newHangfireId;
