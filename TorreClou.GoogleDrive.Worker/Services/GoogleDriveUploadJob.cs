@@ -18,7 +18,6 @@ namespace TorreClou.GoogleDrive.Worker.Services
         IGoogleDriveJobService googleDriveService,
         IUploadProgressContext progressContext,
         ITransferSpeedMetrics speedMetrics,
-        IOptions<BackblazeSettings> backblazeSettings,
         IRedisLockService redisLockService,
         IRedisStreamService redisStreamService,
         IJobStatusService jobStatusService) : UserJobBase<GoogleDriveUploadJob>(unitOfWork, logger, jobStatusService), IGoogleDriveUploadJob
