@@ -114,7 +114,6 @@ namespace TorreClou.Sync.Worker.Services
                 {
                     await RecoverSingleSyncAsync(
                         sync, 
-                        unitOfWork, 
                         backgroundJobClient, 
                         jobStatusService, 
                         monitoringApi, 
