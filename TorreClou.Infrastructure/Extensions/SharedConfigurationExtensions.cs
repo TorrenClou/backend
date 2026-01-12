@@ -155,7 +155,24 @@ namespace TorreClou.Infrastructure.Extensions
         {
             var redisConn = config["Redis:ConnectionString"] ?? "localhost:6379";
 
-            services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConn));
+            // Parse connection string and configure timeouts for cloud Redis
+            var configurationOptions = ConfigurationOptions.Parse(redisConn);
+            
+            // Set timeout values suitable for cloud Redis (RedisLabs)
+            configurationOptions.SyncTimeout = 15000; // 15 seconds for synchronous operations
+            configurationOptions.AsyncTimeout = 15000; // 15 seconds for async operations like XREADGROUP
+            configurationOptions.ConnectTimeout = 10000; // 10 seconds for initial connection
+            
+            // Enable keep-alive for better connection stability
+            configurationOptions.KeepAlive = 60; // Send keep-alive every 60 seconds
+            
+            // Configure retry policy for transient failures
+            configurationOptions.ReconnectRetryPolicy = new ExponentialRetry(1000); // Retry with exponential backoff starting at 1 second
+            
+            // Abort on connect fail to prevent hanging connections
+            configurationOptions.AbortOnConnectFail = false;
+
+            services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(configurationOptions));
             services.AddSingleton<IRedisCacheService, RedisCacheService>();
             services.AddScoped<IRedisLockService, RedisLockService>();
             services.AddSingleton<IRedisStreamService, RedisStreamService>();
