@@ -58,7 +58,8 @@ sudo find "${DOCKER_DATA_DIR}/tmp" -type f -mtime +1 -delete 2>/dev/null || true
 sudo find "${DOCKER_DATA_DIR}/tmp" -type d -empty -delete 2>/dev/null || true
 
 # Report disk usage
-echo -e "${GREEN}External storage usage: $(df -h $EXTERNAL_STORAGE | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"})${NC}"
+DISK_USAGE=$(df -h $EXTERNAL_STORAGE | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')
+echo -e "${GREEN}External storage usage: ${DISK_USAGE}${NC}"
 
 # ============================================
 # CONTAINER MANAGEMENT
@@ -147,7 +148,9 @@ echo -e "  Check health:    docker inspect --format='{{.State.Health.Status}}' $
 echo -e "  Temp disk usage: du -sh ${DOCKER_DATA_DIR}/tmp"
 echo ""
 echo -e "${GREEN}Disk usage verification:${NC}"
-echo -e "  Root FS:         $(df -h / | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
-echo -e "  External:        $(df -h $EXTERNAL_STORAGE | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
+ROOT_USAGE=$(df -h / | tail -1 | awk '{print $3 "/" $2 " (" $5 " )"}')
+EXT_USAGE=$(df -h $EXTERNAL_STORAGE | tail -1 | awk '{print $3 "/" $2 " (" $5 " )"}')
+echo -e "  Root FS:         ${ROOT_USAGE}"
+echo -e "  External:        ${EXT_USAGE}"
 echo ""
 echo -e "${YELLOW}Note: If you see FUSE mount errors, ensure Docker has proper permissions.${NC}"
