@@ -64,11 +64,6 @@ namespace TorreClou.API.Controllers
             return HandleResult(result);
         }
 
-        [HttpPost("{id}/refund")]
-        public async Task<IActionResult> RefundJob(int id)
-        {
-            var result = await jobService.RefundJobAsync(id, UserId);
-            return HandleResult(result);
-        }
+      
     }
 }

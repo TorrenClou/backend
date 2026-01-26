@@ -245,6 +245,40 @@ namespace TorreClou.Infrastructure.Services.S3
                 return Result.Success(false);
             }
         }
+
+        public async Task<Result<string>> UploadFileAsync(string filePath, string credentialsJson, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Parse credentials JSON
+                var creds = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(credentialsJson);
+                var bucketName = creds.GetProperty("bucketName").GetString() ?? throw new Exception("Bucket name not found");
+                var fileName = Path.GetFileName(filePath);
+                var s3Key = $"uploads/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}/{fileName}";
+
+                // Simple single-part upload for now (can be enhanced with multipart for large files)
+                using var fileStream = File.OpenRead(filePath);
+                var uploadRequest = new Amazon.S3.Model.PutObjectRequest
+                {
+                    BucketName = bucketName,
+                    Key = s3Key,
+                    InputStream = fileStream,
+                    ContentType = "application/octet-stream"
+                };
+
+                await _s3Client.PutObjectAsync(uploadRequest, cancellationToken);
+                
+                _logger.LogInformation("Uploaded file to S3 | Bucket: {Bucket} | Key: {Key} | Size: {Size}", 
+                    bucketName, s3Key, fileStream.Length);
+
+                return Result.Success(s3Key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload file | Path: {Path}", filePath);
+                return Result<string>.Failure("UPLOAD_FAILED", $"Failed to upload file: {ex.Message}");
+            }
+        }
     }
 }
 
