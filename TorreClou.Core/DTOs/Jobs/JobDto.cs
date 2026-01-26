@@ -19,7 +19,7 @@ namespace TorreClou.Core.DTOs.Jobs
         public DateTime? LastHeartbeat { get; set; }
         public long BytesDownloaded { get; set; }
         public long TotalBytes { get; set; }
-        public string[] SelectedFilePaths { get; set; } = [];
+        public string[]? SelectedFilePaths { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         

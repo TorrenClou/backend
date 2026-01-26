@@ -69,7 +69,7 @@ namespace TorreClou.Application.Services
                 Status = JobStatus.QUEUED,
                 Type = defaultJobType,
                 RequestFileId = torrentFileId,
-                SelectedFilePaths = selectedFiles ?? []
+                SelectedFilePaths = selectedFiles
             };
 
             unitOfWork.Repository<UserJob>().Add(job);
@@ -83,7 +83,7 @@ namespace TorreClou.Application.Services
             {
                 storageProfileId = defaultStorageProfile.Id,
                 requestFileId = torrentFileId,
-                selectedFilesCount = job.SelectedFilePaths.Length
+                selectedFilesCount = job.SelectedFilePaths?.Length ?? 0
             });
 
             // 6. Publish to Stream

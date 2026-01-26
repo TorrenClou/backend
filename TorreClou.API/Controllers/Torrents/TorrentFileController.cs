@@ -31,7 +31,7 @@ namespace TorreClou.API.Controllers.Torrents
             var result = await jobService.CreateAndDispatchJobAsync(
                 request.TorrentFileId,
                 userId,
-                request.SelectedFilePaths ?? [],
+                request.SelectedFilePaths,
                 request.StorageProfileId);
 
             if (result.IsFailure)
