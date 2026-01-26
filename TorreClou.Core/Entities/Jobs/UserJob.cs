@@ -45,7 +45,7 @@ namespace TorreClou.Core.Entities.Jobs
 
 
 
-        public string[] SelectedFilePaths { get; set; } = [];
+        public string[]? SelectedFilePaths { get; set; }
 
 
 

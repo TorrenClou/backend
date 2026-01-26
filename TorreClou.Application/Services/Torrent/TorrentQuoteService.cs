@@ -39,6 +39,8 @@ namespace TorreClou.Application.Services.Torrent
             long totalSizeInBytes = totalSizeResult.Value;
 
             // 3. Store torrent file
+            // Reset stream position after it was consumed by GetTorrentInfoFromTorrentFileAsync
+            torrentFile.Position = 0;
             var torrentStoredResult = await torrentService.FindOrCreateTorrentFile(torrentInfo, userId, torrentFile);
 
             if (torrentStoredResult.IsFailure)

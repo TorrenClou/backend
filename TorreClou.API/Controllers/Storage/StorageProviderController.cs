@@ -30,7 +30,7 @@ namespace TorreClou.API.Controllers.Storage
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> ConfigureS3Async([FromBody] ConfigureS3RequestDto request)
         {
-            var userId = int.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst("userId")?.Value ?? "0");
+            var userId = int.Parse(User.FindFirst("sub")?.Value ?? User.FindFirst("userId")?.Value);
             
             _logger.LogInformation("Configure S3 storage requested | UserId: {UserId}", userId);
 
