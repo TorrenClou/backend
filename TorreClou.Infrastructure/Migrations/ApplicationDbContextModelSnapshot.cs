@@ -153,9 +153,6 @@ namespace TorreClou.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("SyncId")
-                        .HasColumnType("integer");
-
                     b.Property<long>("TotalBytes")
                         .HasColumnType("bigint");
 
@@ -172,120 +169,7 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasIndex("JobId");
 
-                    b.HasIndex("SyncId");
-
                     b.ToTable("S3SyncProgresses", "dev");
-                });
-
-            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.Sync", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<long>("BytesSynced")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasColumnType("text");
-
-                    b.Property<int>("FilesSynced")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("FilesTotal")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("HangfireJobId")
-                        .HasColumnType("text");
-
-                    b.Property<int>("JobId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("LastHeartbeat")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LocalFilePath")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("NextRetryAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("RetryCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("S3KeyPrefix")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("TotalBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("JobId");
-
-                    b.ToTable("Syncs", "dev");
-                });
-
-            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.SyncStatusHistory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("ChangedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasColumnType("text");
-
-                    b.Property<string>("FromStatus")
-                        .HasColumnType("text");
-
-                    b.Property<string>("MetadataJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("SyncId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ToStatus")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SyncId", "ChangedAt");
-
-                    b.ToTable("SyncStatusHistories", "dev");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
@@ -647,37 +531,7 @@ namespace TorreClou.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("TorreClou.Core.Entities.Jobs.Sync", "Sync")
-                        .WithMany("FileProgress")
-                        .HasForeignKey("SyncId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Sync");
-
                     b.Navigation("UserJob");
-                });
-
-            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.Sync", b =>
-                {
-                    b.HasOne("TorreClou.Core.Entities.Jobs.UserJob", "UserJob")
-                        .WithMany()
-                        .HasForeignKey("JobId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("UserJob");
-                });
-
-            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.SyncStatusHistory", b =>
-                {
-                    b.HasOne("TorreClou.Core.Entities.Jobs.Sync", "Sync")
-                        .WithMany("StatusHistory")
-                        .HasForeignKey("SyncId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Sync");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
@@ -746,13 +600,6 @@ namespace TorreClou.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("UploadedByUser");
-                });
-
-            modelBuilder.Entity("TorreClou.Core.Entities.Jobs.Sync", b =>
-                {
-                    b.Navigation("FileProgress");
-
-                    b.Navigation("StatusHistory");
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>

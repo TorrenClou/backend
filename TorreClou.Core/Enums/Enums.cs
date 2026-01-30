@@ -24,13 +24,12 @@
         Failed,    // الفيزا اترفضا
         Expired    // اللينك مدته انتهت
     }
-    public enum SyncStatus
+
+    public enum S3UploadProgressStatus
     {
-        SYNC_RETRY,
-        SYNCING,
-        FAILED,
-        COMPLETED,
-        PENDING
+        InProgress,
+        Completed,
+        Failed
     }
     public enum JobStatus 
     { 
@@ -48,7 +47,7 @@
         GOOGLE_DRIVE_FAILED 
     }
 
-    public enum JobType { Torrent,  Sync}
+    public enum JobType { Torrent }
 
     public enum ViolationType
     {

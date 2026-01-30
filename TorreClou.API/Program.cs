@@ -1,4 +1,5 @@
 using Hangfire;
+using Hangfire.Storage;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
@@ -30,6 +31,10 @@ try
     builder.Services.AddSharedRedis(builder.Configuration);
     builder.Services.AddTorreClouOpenTelemetry(ServiceName, builder.Configuration, builder.Environment, true);
     builder.Services.AddSharedHangfireBase(builder.Configuration);
+    
+    // Register IMonitoringApi for HealthController
+    builder.Services.AddSingleton<IMonitoringApi>(provider => 
+        JobStorage.Current.GetMonitoringApi());
 
     // Application Services
     builder.Services.AddApplicationServices();
