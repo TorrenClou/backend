@@ -103,7 +103,7 @@ services:
       - downloads:/app/downloads
     restart: unless-stopped
 
-  # S3 Sync Worker
+  # S3 Upload Worker
   s3-worker:
     build:
       context: .

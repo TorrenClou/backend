@@ -22,12 +22,10 @@ namespace TorreClou.Infrastructure.Data
         // --- Job & File Entities ---
         public DbSet<RequestedFile> RequestedFiles { get; set; }
         public DbSet<UserJob> UserJobs { get; set; }
-        public DbSet<Sync> Syncs { get; set; }
         public DbSet<S3SyncProgress> S3SyncProgresses { get; set; }
 
         // --- Status History (Timeline) ---
         public DbSet<JobStatusHistory> JobStatusHistories { get; set; }
-        public DbSet<SyncStatusHistory> SyncStatusHistories { get; set; }
 
   
         public DbSet<Voucher> Vouchers { get; set; } // Added
@@ -62,14 +60,6 @@ namespace TorreClou.Infrastructure.Data
             builder.Entity<UserJob>()
                 .Property(e => e.SelectedFilePaths).HasColumnType("text[]"); // PostgreSQL Array
 
-            // --- Sync ---
-            builder.Entity<Sync>()
-                .Property(s => s.Status).HasConversion<string>();
-            builder.Entity<Sync>()
-                .HasOne(s => s.UserJob)
-                .WithMany()
-                .HasForeignKey(s => s.JobId)
-                .OnDelete(DeleteBehavior.Cascade);
 
             // --- Job Status History (Timeline) ---
             builder.Entity<JobStatusHistory>()
@@ -88,30 +78,12 @@ namespace TorreClou.Infrastructure.Data
             builder.Entity<JobStatusHistory>()
                 .HasIndex(h => new { h.JobId, h.ChangedAt });
 
-            // --- Sync Status History (Timeline) ---
-            builder.Entity<SyncStatusHistory>()
-                .Property(h => h.FromStatus).HasConversion<string>();
-            builder.Entity<SyncStatusHistory>()
-                .Property(h => h.ToStatus).HasConversion<string>();
-            builder.Entity<SyncStatusHistory>()
-                .Property(h => h.Source).HasConversion<string>();
-            builder.Entity<SyncStatusHistory>()
-                .Property(h => h.MetadataJson).HasColumnType("jsonb");
-            builder.Entity<SyncStatusHistory>()
-                .HasOne(h => h.Sync)
-                .WithMany(s => s.StatusHistory)
-                .HasForeignKey(h => h.SyncId)
-                .OnDelete(DeleteBehavior.Cascade);
-            builder.Entity<SyncStatusHistory>()
-                .HasIndex(h => new { h.SyncId, h.ChangedAt });
 
             // --- S3 Progress ---
             builder.Entity<S3SyncProgress>()
                 .Property(p => p.Status).HasConversion<string>();
             builder.Entity<S3SyncProgress>()
                 .HasOne(p => p.UserJob).WithMany().HasForeignKey(p => p.JobId).OnDelete(DeleteBehavior.Cascade);
-            builder.Entity<S3SyncProgress>()
-                .HasOne(p => p.Sync).WithMany(s => s.FileProgress).HasForeignKey(p => p.SyncId).OnDelete(DeleteBehavior.Cascade);
 
 
             // --- Vouchers & Marketing ---

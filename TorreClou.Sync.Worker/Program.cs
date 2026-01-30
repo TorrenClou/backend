@@ -5,13 +5,11 @@ using TorreClou.Core.Interfaces;
 using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Core.Options;
 using TorreClou.Infrastructure.Extensions;
-using TorreClou.Infrastructure.Filters;
 using TorreClou.Infrastructure.Services.S3;
 using TorreClou.Infrastructure.Settings;
 using TorreClou.Sync.Worker;
-using TorreClou.Sync.Worker.Services;
 
-const string ServiceName = "torreclou-sync-worker";
+const string ServiceName = "torreclou-s3-worker";
 
 // Bootstrap logger
 Log.Logger = new LoggerConfiguration()
@@ -35,16 +33,12 @@ try
 
     // Hangfire
     builder.Services.AddSharedHangfireBase(builder.Configuration);
-    GlobalJobFilters.Filters.Add(new JobStateSyncFilter(
-        builder.Services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
-        new LoggerFactory().CreateLogger<JobStateSyncFilter>()
-    ));
-    builder.Services.AddSharedHangfireServer(queues: ["sync", "default"]);
+    builder.Services.AddSharedHangfireServer(queues: ["s3", "default"]);
 
     // Worker Services
     builder.Services.Configure<BackblazeSettings>(builder.Configuration.GetSection("Backblaze"));
     builder.Services.AddScoped<IS3ResumableUploadService, S3ResumableUploadService>();
-    builder.Services.AddScoped<IS3SyncJob, S3SyncJob>();
+    builder.Services.AddScoped<IS3UploadJob, TorreClou.Infrastructure.Services.S3.S3UploadJob>();
     builder.Services.AddScoped<IJobStatusService, TorreClou.Infrastructure.Services.JobStatusService>();
 
     // Hosted Services
@@ -53,8 +47,8 @@ try
         opts.CheckInterval = TimeSpan.FromMinutes(2);
         opts.StaleJobThreshold = TimeSpan.FromMinutes(5);
     });
-    builder.Services.AddHostedService<SyncRecoveryService>();
-    builder.Services.AddHostedService<SyncWorker>();
+    builder.Services.AddHostedService<JobHealthMonitor<TorreClou.Core.Entities.Jobs.UserJob>>();
+    builder.Services.AddHostedService<S3Worker>();
 
     // Configure host shutdown timeout to allow Hangfire graceful shutdown
     builder.Services.Configure<HostOptions>(opts => 
@@ -69,7 +63,7 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "Sync Worker terminated unexpectedly");
+    Log.Fatal(ex, "S3 Worker terminated unexpectedly");
 }
 finally
 {
