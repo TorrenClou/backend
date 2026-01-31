@@ -299,7 +299,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
             return map;
         }
 
-        private class UploadResult { public int TotalFiles; public int FailedFiles; public bool AllFilesUploaded => FailedFiles == 0; }
+        private sealed class UploadResult { public int TotalFiles; public int FailedFiles; public bool AllFilesUploaded => FailedFiles == 0; }
 
         private async Task<UploadResult> UploadFilesAsync(
             UserJob job,
@@ -339,7 +339,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 else
                 {
                     result.FailedFiles++;
-                    Logger.LogError("{LogPrefix} Upload failed for {File}: {Error}", LogPrefix, file.Name, upload.Error.Message);
+                    Logger.LogCritical("{LogPrefix} Upload failed for {File}: {Error}", LogPrefix, file.Name, upload.Error.Message);
 
                     // Recover partial progress
                     var resumeUri = await progressContext.GetResumeUriAsync(relPath);
