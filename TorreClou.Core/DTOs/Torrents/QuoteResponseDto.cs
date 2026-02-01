@@ -1,5 +1,4 @@
 using TorreClou.Core.DTOs.Torrents;
-using TorreClou.Core.Models.Pricing;
 
 public record QuoteResponseDto
 {

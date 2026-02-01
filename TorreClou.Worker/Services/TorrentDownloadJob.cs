@@ -1,5 +1,4 @@
 ﻿using Hangfire;
-using Microsoft.Extensions.Options;
 using MonoTorrent;
 using MonoTorrent.Client;
 using TorreClou.Core.Entities.Jobs;
@@ -7,7 +6,6 @@ using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Core.Specifications;
-using TorreClou.Infrastructure.Settings;
 using TorreClou.Infrastructure.Workers;
 
 namespace TorreClou.Worker.Services
@@ -22,10 +20,10 @@ namespace TorreClou.Worker.Services
         ILogger<TorrentDownloadJob> logger,
         IRedisStreamService redisStreamService,
         ITransferSpeedMetrics speedMetrics,
-        IJobStatusService jobStatusService,
-        IOptions<BackblazeSettings> backblazeSettings) : UserJobBase<TorrentDownloadJob>(unitOfWork, logger, jobStatusService), ITorrentDownloadJob
+        IJobStatusService jobStatusService) : UserJobBase<TorrentDownloadJob>(unitOfWork, logger, jobStatusService), ITorrentDownloadJob
     {
-        private readonly BackblazeSettings _backblazeSettings = backblazeSettings.Value;
+        // Default download path - can be made configurable via environment variable if needed
+        private const string DefaultDownloadPath = "/mnt/torrents";
 
         // Save FastResume state every 30 seconds
         private static readonly TimeSpan FastResumeSaveInterval = TimeSpan.FromSeconds(30);
@@ -205,23 +203,19 @@ namespace TorreClou.Worker.Services
                 return job.DownloadPath;
             }
 
-            // Use block storage for downloads
-            var blockStoragePath = _backblazeSettings.BlockStoragePath;
-            if (string.IsNullOrEmpty(blockStoragePath))
+            // Use default download path
+            var downloadBasePath = Environment.GetEnvironmentVariable("TORRENT_DOWNLOAD_PATH") ?? DefaultDownloadPath;
+
+            // Verify download path exists
+            if (!Directory.Exists(downloadBasePath))
             {
-                blockStoragePath = "/mnt/torrents"; // Default fallback
+                Logger.LogCritical("{LogPrefix} Download path does not exist | JobId: {JobId} | Path: {Path}",
+                    LogPrefix, job.Id, downloadBasePath);
+                throw new DirectoryNotFoundException($"Download path does not exist: {downloadBasePath}");
             }
 
-            // Verify block storage path exists
-            if (!Directory.Exists(blockStoragePath))
-            {
-                Logger.LogCritical("{LogPrefix} Block storage path does not exist | JobId: {JobId} | Path: {Path}",
-                    LogPrefix, job.Id, blockStoragePath);
-                throw new DirectoryNotFoundException($"Block storage path does not exist: {blockStoragePath}");
-            }
-
-            // Create job-specific directory on block storage
-            var downloadPath = Path.Combine(blockStoragePath, job.Id.ToString());
+            // Create job-specific directory
+            var downloadPath = Path.Combine(downloadBasePath, job.Id.ToString());
             Directory.CreateDirectory(downloadPath);
 
             Logger.LogInformation("{LogPrefix} Using block storage for download | JobId: {JobId} | Path: {Path}",

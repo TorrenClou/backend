@@ -11,7 +11,6 @@ using TorreClou.Infrastructure.Settings;
 using TorreClou.Core.Options;
 using TorreClou.Application.Services.Google_Drive;
 using TorreClou.Infrastructure.Services.Redis;
-using TorreClou.Infrastructure.Services.S3;
 using TorreClou.Infrastructure.Services.Drive;
 using TorreClou.Infrastructure.Services.Handlers;
 
@@ -24,15 +23,6 @@ namespace TorreClou.Infrastructure.Extensions
             services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
             services.AddScoped<IUnitOfWork, UnitOfWork>();
             services.AddSingleton<UpdateAuditableEntitiesInterceptor>();
-
-            // Coinremitter payment gateway
-            services.Configure<CoinremitterSettings>(configuration.GetSection("Coinremitter"));
-
-            // Backblaze B2 Storage
-            services.Configure<BackblazeSettings>(configuration.GetSection("Backblaze"));
-            services.AddSingleton<IBlobStorageService, BackblazeStorageService>();
-            services.AddScoped<IS3ResumableUploadService, S3ResumableUploadService>();
-            services.AddScoped<IS3FileDownloadService, S3FileDownloadService>();
 
             // Redis
             var redisSettings = configuration.GetSection("Redis").Get<RedisSettings>() ?? new RedisSettings();
