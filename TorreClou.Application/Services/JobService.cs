@@ -9,7 +9,6 @@ using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
-using TorreClou.Core.Models.Pricing;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
 using TorreClou.Core.Extensions;
@@ -224,22 +223,6 @@ namespace TorreClou.Application.Services
                 .ToList();
 
             return Result.Success(statistics);
-        }
-
-        private static string[] ExtractSelectedFilesFromSnapshot(string pricingSnapshotJson)
-        {
-            if (string.IsNullOrEmpty(pricingSnapshotJson))
-                return [];
-
-            try
-            {
-                var snapshot = JsonSerializer.Deserialize<PricingSnapshot>(pricingSnapshotJson);
-                return snapshot?.SelectedFiles?.ToArray() ?? [];
-            }
-            catch
-            {
-                return [];
-            }
         }
 
         public async Task<Result<IReadOnlyList<UserJob>>> GetActiveJobsByStorageProfileIdAsync(int storageProfileId)

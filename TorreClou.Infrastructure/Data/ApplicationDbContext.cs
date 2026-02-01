@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Entities.Jobs;
-using TorreClou.Core.Entities.Marketing;
 using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Entities.Compliance;
 
@@ -26,11 +25,6 @@ namespace TorreClou.Infrastructure.Data
 
         // --- Status History (Timeline) ---
         public DbSet<JobStatusHistory> JobStatusHistories { get; set; }
-
-  
-        public DbSet<Voucher> Vouchers { get; set; } // Added
-        public DbSet<UserVoucherUsage> UserVoucherUsages { get; set; } // Added
-        public DbSet<FlashSale> FlashSales { get; set; } // Added
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -84,21 +78,6 @@ namespace TorreClou.Infrastructure.Data
                 .Property(p => p.Status).HasConversion<string>();
             builder.Entity<S3SyncProgress>()
                 .HasOne(p => p.UserJob).WithMany().HasForeignKey(p => p.JobId).OnDelete(DeleteBehavior.Cascade);
-
-
-            // --- Vouchers & Marketing ---
-            builder.Entity<Voucher>()
-                .HasIndex(v => v.Code).IsUnique();
-            builder.Entity<Voucher>()
-                .Property(v => v.Type).HasConversion<string>();
-
-            builder.Entity<UserVoucherUsage>()
-                .HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
-            builder.Entity<UserVoucherUsage>()
-                .HasOne(x => x.Voucher).WithMany(v => v.Usages).HasForeignKey(x => x.VoucherId);
-
-            builder.Entity<FlashSale>()
-                .Property(f => f.TargetRegion).HasConversion<string>();
 
             // --- Strikes ---
             builder.Entity<UserStrike>()
