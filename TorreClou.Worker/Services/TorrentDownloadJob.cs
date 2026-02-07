@@ -29,7 +29,7 @@ namespace TorreClou.Worker.Services
         private static readonly TimeSpan FastResumeSaveInterval = TimeSpan.FromSeconds(30);
 
         // Update database progress every 5 seconds
-        private static readonly TimeSpan DbUpdateInterval = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan DbUpdateInterval = TimeSpan.FromSeconds(5);
 
         // Engine reference for cleanup in error/cancellation handlers
         private ClientEngine? _engine;

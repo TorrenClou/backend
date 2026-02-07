@@ -6,7 +6,6 @@ using TorreClou.Core.Specifications;
 namespace TorreClou.Application.Services.Torrent
 {
     public class TorrentAnalysisService(
-        IUnitOfWork unitOfWork,
         ITorrentService torrentService,
         IStorageProfilesService storageProfilesService) : ITorrentAnalysisService
     {

@@ -16,7 +16,7 @@ namespace TorreClou.Infrastructure.Data
         // --- Core Entities ---
         public DbSet<User> Users { get; set; }
         public DbSet<UserStorageProfile> UserStorageProfiles { get; set; }
-        public DbSet<UserStrike> UserStrikes { get; set; }
+  
 
         // --- Job & File Entities ---
         public DbSet<RequestedFile> RequestedFiles { get; set; }

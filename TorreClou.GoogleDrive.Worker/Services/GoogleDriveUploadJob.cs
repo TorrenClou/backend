@@ -40,7 +40,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
         {
             // FIX: Extended lock time to 2 hours to cover large file uploads
             var lockKey = $"gdrive:lock:{job.Id}";
-            var lockExpiry = TimeSpan.FromHours(2);
+            var lockExpiry = TimeSpan.FromHours(2); // Maybe we can make it configurable in the future, but for now we want to be very conservative to prevent multiple workers processing the same job and causing duplicate uploads or
 
             using var distributedLock = await redisLockService.AcquireLockAsync(lockKey, lockExpiry, cancellationToken);
 
