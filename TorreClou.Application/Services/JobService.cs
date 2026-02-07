@@ -28,7 +28,7 @@ namespace TorreClou.Application.Services
         public async Task<Result<JobCreationResult>> CreateAndDispatchJobAsync(int torrentFileId, int userId, string[] selectedFiles, int? storageProfileId = null)
         {
             logger.LogInformation("Create and dispatch job requested | TorrentFileId: {TorrentFileId} | UserId: {UserId}", torrentFileId, userId);
-
+            // THATS NOT CORRECT, THE SERVICE HAS TO KNOW NOTHING ABOUT TORRENT, IT SHOULD BE FILE, THE FILE CAN BE TORRENT OR DIRECT URL, THE SERVICE SHOULD NOT CARE, IT JUST NEEDS A FILE WITH PATHS TO DOWNLOAD, THE JOB TYPE HANDLER SHOULD KNOW HOW TO HANDLE THE FILE BASED ON ITS TYPE
             // 1. Load torrent file
             var torrentFile = await unitOfWork.Repository<RequestedFile>().GetByIdAsync(torrentFileId);
             if (torrentFile == null)

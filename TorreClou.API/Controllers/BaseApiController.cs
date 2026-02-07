@@ -14,7 +14,7 @@ public abstract class BaseApiController : ControllerBase
     /// <summary>
     /// Gets the authenticated user's ID from claims.
     /// </summary>
-    protected int UserId => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+    private int UserId => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
         ?? throw new UnauthorizedAccessException("User ID not found in claims"));
 
     protected int GetCurrentUserId()
@@ -22,10 +22,6 @@ public abstract class BaseApiController : ControllerBase
         return UserId;
     }
 
-    /// <summary>
-    /// Gets the authenticated user's email from claims.
-    /// </summary>
-    protected string? UserEmail => User.FindFirst(ClaimTypes.Email)?.Value;
 
     /// <summary>
     /// Handles a Result object and returns the appropriate IActionResult.
