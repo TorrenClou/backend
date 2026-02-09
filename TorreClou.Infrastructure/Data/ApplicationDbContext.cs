@@ -50,7 +50,8 @@ namespace TorreClou.Infrastructure.Data
                 }
                 else if (entry.State == EntityState.Modified)
                 {
-                    entry.Entity.UpdatedAt = DateTime.UtcNow;
+                    // Prevent CreatedAt from being modified on updates
+                    entry.Property(nameof(BaseEntity.CreatedAt)).IsModified = false;
                 }
             }
         }

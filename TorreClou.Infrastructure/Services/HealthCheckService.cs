@@ -42,11 +42,21 @@ namespace TorreClou.Infrastructure.Services
             try
             {
                 var stopwatch = Stopwatch.StartNew();
-                await unitOfWork.CanConnectAsync(dbCts.Token);
+                var canConnect = await unitOfWork.CanConnectAsync(dbCts.Token);
                 stopwatch.Stop();
 
-                status.Database = "healthy";
                 status.DatabaseResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
+
+                if (canConnect)
+                {
+                    status.Database = "healthy";
+                }
+                else
+                {
+                    status.Database = "unhealthy";
+                    status.IsHealthy = false;
+                    logger.LogWarning("Database health check returned false (unable to connect). Response time: {ResponseTimeMs}ms", stopwatch.ElapsedMilliseconds);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -61,23 +71,34 @@ namespace TorreClou.Infrastructure.Services
                 logger.LogError(ex, "Database health check failed");
             }
 
-            // Redis check via IRedisCacheService
-            using var redisCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            redisCts.CancelAfter(HealthCheckTimeout);
+            // Redis check via IRedisCacheService (with timeout enforced via Task.WhenAny)
             try
             {
                 var stopwatch = Stopwatch.StartNew();
-                await redisCache.ExistsAsync("health:ping");
+                var redisTask = redisCache.ExistsAsync("health:ping");
+                var delayTask = Task.Delay(HealthCheckTimeout, ct);
+
+                var completedTask = await Task.WhenAny(redisTask, delayTask);
                 stopwatch.Stop();
 
-                status.Redis = "healthy";
-                status.RedisResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
+                if (completedTask == delayTask)
+                {
+                    status.Redis = "timeout";
+                    status.IsHealthy = false;
+                    logger.LogWarning("Redis health check timed out after {Timeout}ms", HealthCheckTimeout.TotalMilliseconds);
+                }
+                else
+                {
+                    await redisTask;
+                    status.Redis = "healthy";
+                    status.RedisResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
+                }
             }
             catch (OperationCanceledException)
             {
                 status.Redis = "timeout";
                 status.IsHealthy = false;
-                logger.LogWarning("Redis health check timed out after {Timeout}ms", HealthCheckTimeout.TotalMilliseconds);
+                logger.LogWarning("Redis health check cancelled");
             }
             catch (Exception ex)
             {
@@ -136,17 +157,28 @@ namespace TorreClou.Infrastructure.Services
                 logger.LogError(ex, "Detailed database health check failed");
             }
 
-            // Redis check via IRedisCacheService
-            using var redisCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            redisCts.CancelAfter(HealthCheckTimeout);
+            // Redis check via IRedisCacheService (with timeout enforced via Task.WhenAny)
             try
             {
                 var stopwatch = Stopwatch.StartNew();
-                await redisCache.ExistsAsync("health:ping");
+                var redisTask = redisCache.ExistsAsync("health:ping");
+                var delayTask = Task.Delay(HealthCheckTimeout, ct);
+
+                var completedTask = await Task.WhenAny(redisTask, delayTask);
                 stopwatch.Stop();
 
-                detailed.Redis = "healthy";
-                detailed.RedisResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
+                if (completedTask == delayTask)
+                {
+                    detailed.Redis = "timeout";
+                    detailed.IsHealthy = false;
+                    logger.LogWarning("Detailed Redis health check timed out after {Timeout}ms", HealthCheckTimeout.TotalMilliseconds);
+                }
+                else
+                {
+                    await redisTask;
+                    detailed.Redis = "healthy";
+                    detailed.RedisResponseTimeMs = (int)stopwatch.ElapsedMilliseconds;
+                }
             }
             catch (Exception ex)
             {
