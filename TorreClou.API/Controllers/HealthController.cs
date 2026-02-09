@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using TorreClou.API.Services;
+using TorreClou.Core.Interfaces;
 
 namespace TorreClou.API.Controllers
 {

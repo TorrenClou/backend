@@ -1,8 +1,7 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using System.Web;
 using Microsoft.Extensions.Logging;
+using TorreClou.Application.Services.OAuth;
+using TorreClou.Application.Validators;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
@@ -15,9 +14,9 @@ namespace TorreClou.Application.Services
 {
     public class GoogleDriveAuthService(
         IUnitOfWork unitOfWork,
-        IHttpClientFactory httpClientFactory,
-        ILogger<GoogleDriveAuthService> logger,
-        IRedisCacheService redisCache) : IGoogleDriveAuthService
+        IOAuthStateService oauthStateService,
+        IGoogleApiClient googleApiClient,
+        ILogger<GoogleDriveAuthService> logger) : IGoogleDriveAuthService
     {
         private const string RedisKeyPrefixConfigure = "oauth:gdrive:state:";
 
@@ -26,63 +25,38 @@ namespace TorreClou.Application.Services
             try
             {
                 // Validate credentials format
-                if (string.IsNullOrEmpty(request.ClientId) || !request.ClientId.Contains(".apps.googleusercontent.com"))
-                {
-                    return Result<string>.Failure("INVALID_CLIENT_ID", "Invalid Google Client ID format. It should end with .apps.googleusercontent.com");
-                }
-
-                if (string.IsNullOrEmpty(request.ClientSecret))
-                {
-                    return Result<string>.Failure("INVALID_CLIENT_SECRET", "Client Secret is required");
-                }
-
-                if (string.IsNullOrEmpty(request.RedirectUri))
-                {
-                    return Result<string>.Failure("INVALID_REDIRECT_URI", "Redirect URI is required");
-                }
+                var credentialValidation = StorageProfileValidator.ValidateGoogleDriveCredentials(
+                    request.ClientId, request.ClientSecret, request.RedirectUri);
+                if (credentialValidation.IsFailure)
+                    return Result<string>.Failure(credentialValidation.Error);
 
                 // Validate profile name if provided
                 if (!string.IsNullOrWhiteSpace(request.ProfileName))
                 {
-                    var validationResult = ValidateProfileName(request.ProfileName);
-                    if (validationResult.IsFailure)
-                    {
-                        return Result<string>.Failure(validationResult.Error.Code, validationResult.Error.Message);
-                    }
+                    var nameValidation = StorageProfileValidator.ValidateProfileName(request.ProfileName);
+                    if (nameValidation.IsFailure)
+                        return Result<string>.Failure(nameValidation.Error);
                 }
 
-                // Generate state with user's credentials
-                var nonce = Guid.NewGuid().ToString("N");
-                var state = $"{userId}:{nonce}";
-                var stateHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(state)));
-
+                // Build OAuth state
                 var oauthState = new OAuthState
                 {
                     UserId = userId,
-                    Nonce = nonce,
                     ProfileName = request.ProfileName?.Trim(),
-                    ExpiresAt = DateTime.UtcNow.AddMinutes(10), // Longer expiry for user to complete OAuth
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(10),
                     ClientId = request.ClientId,
                     ClientSecret = request.ClientSecret,
                     RedirectUri = request.RedirectUri,
                     SetAsDefault = request.SetAsDefault
                 };
 
-                var redisKey = $"{RedisKeyPrefixConfigure}{stateHash}";
-                await redisCache.SetAsync(redisKey, JsonSerializer.Serialize(oauthState), TimeSpan.FromMinutes(10));
+                // Generate state hash and store in Redis
+                var stateHash = await oauthStateService.GenerateStateAsync(
+                    oauthState, RedisKeyPrefixConfigure, TimeSpan.FromMinutes(10));
 
-                // Build authorization URL using USER'S credentials
-                var scopes = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
-                var encodedState = HttpUtility.UrlEncode(stateHash);
-
-                var authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
-                    $"client_id={HttpUtility.UrlEncode(request.ClientId)}&" +
-                    $"redirect_uri={HttpUtility.UrlEncode(request.RedirectUri)}&" +
-                    $"response_type=code&" +
-                    $"scope={HttpUtility.UrlEncode(scopes)}&" +
-                    $"access_type=offline&" +
-                    $"prompt=consent&" +
-                    $"state={encodedState}";
+                // Build authorization URL
+                var authUrl = GoogleOAuthUrlBuilder.BuildAuthorizationUrl(
+                    request.ClientId, request.RedirectUri, stateHash);
 
                 logger.LogInformation("Generated OAuth URL for user {UserId} with user-provided credentials", userId);
                 return Result.Success(authUrl);
@@ -90,7 +64,7 @@ namespace TorreClou.Application.Services
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error generating authorization URL with user credentials for user {UserId}", userId);
-                return Result<string>.Failure("AUTH_URL_ERROR", "Failed to generate authorization URL");
+                return Result<string>.Failure(ErrorCode.AuthUrlError, "Failed to generate authorization URL");
             }
         }
 
@@ -98,32 +72,24 @@ namespace TorreClou.Application.Services
         {
             try
             {
-                // Get OAuth state from Redis (user must use /configure endpoint)
-                var configureKey = $"{RedisKeyPrefixConfigure}{state}";
-                var stateJson = await redisCache.GetAndDeleteAsync(configureKey);
-
-                if (string.IsNullOrEmpty(stateJson))
-                {
-                    return Result<int>.Failure("INVALID_STATE", "Invalid or expired OAuth state. Please use the /api/storage/gdrive/configure endpoint to connect Google Drive.");
-                }
-
-                var storedState = JsonSerializer.Deserialize<OAuthState>(stateJson);
+                // Consume OAuth state from Redis (atomically retrieves and deletes)
+                var storedState = await oauthStateService.ConsumeStateAsync<OAuthState>(state, RedisKeyPrefixConfigure);
 
                 if (storedState == null)
                 {
-                    return Result<int>.Failure("INVALID_STATE", "Invalid OAuth state format");
+                    return Result<int>.Failure(ErrorCode.InvalidState, "Invalid or expired OAuth state. Please use the /api/storage/gdrive/configure endpoint to connect Google Drive.");
                 }
 
                 // Validate expiration
                 if (storedState.ExpiresAt < DateTime.UtcNow)
                 {
-                    return Result<int>.Failure("INVALID_STATE", "Expired OAuth state");
+                    return Result<int>.Failure(ErrorCode.InvalidState, "Expired OAuth state");
                 }
 
                 // Validate credentials are present in state (required - no env fallback)
                 if (string.IsNullOrEmpty(storedState.ClientId) || string.IsNullOrEmpty(storedState.ClientSecret) || string.IsNullOrEmpty(storedState.RedirectUri))
                 {
-                    return Result<int>.Failure("MISSING_CREDENTIALS", "OAuth credentials not found. Please use the /api/storage/gdrive/configure endpoint.");
+                    return Result<int>.Failure(ErrorCode.MissingCredentials, "OAuth credentials not found. Please use the /api/storage/gdrive/configure endpoint.");
                 }
 
                 // Extract userId and profileName from validated state
@@ -135,7 +101,7 @@ namespace TorreClou.Application.Services
                 if (user == null)
                 {
                     logger.LogWarning("OAuth callback attempted for non-existent user {UserId}", userId);
-                    return Result<int>.Failure("USER_NOT_FOUND", "User not found. Please log in and try again.");
+                    return Result<int>.Failure(ErrorCode.UserNotFound, "User not found. Please log in and try again.");
                 }
 
                 // Use user-provided credentials from configure flow
@@ -144,31 +110,31 @@ namespace TorreClou.Application.Services
                 var redirectUri = storedState.RedirectUri;
                 logger.LogInformation("Using user-provided credentials for token exchange (user {UserId})", userId);
 
-                // Exchange authorization code for tokens
-                var tokenResponse = await ExchangeCodeForTokensAsync(code, clientId, clientSecret, redirectUri);
-                if (tokenResponse == null)
+                // Exchange authorization code for tokens via GoogleApiClient
+                var tokenResult = await googleApiClient.ExchangeCodeForTokensAsync(code, clientId, clientSecret, redirectUri);
+                if (tokenResult.IsFailure)
                 {
-                    return Result<int>.Failure("TOKEN_EXCHANGE_FAILED", "Failed to exchange authorization code for tokens");
+                    return Result<int>.Failure(tokenResult.Error);
                 }
+
+                var tokenResponse = tokenResult.Value;
 
                 // Validate that refresh token is present (critical for long-running jobs)
                 if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
                 {
                     logger.LogCritical("OAuth token exchange succeeded but no refresh token received for user {UserId}. This may cause authentication issues for long-running jobs.", userId);
-                    // Note: Google only returns refresh token on first authorization or when prompt=consent is used
-                    // We already have prompt=consent in the auth URL, so this should not happen
                 }
                 else
                 {
                     logger.LogInformation("Refresh token received successfully for user {UserId}", userId);
                 }
 
-                // Fetch user info (email) from Google
-                var userInfo = await GetUserInfoAsync(tokenResponse.AccessToken);
+                // Fetch user info (email) from Google via GoogleApiClient
                 string? email = null;
-                if (userInfo != null && !string.IsNullOrEmpty(userInfo.Email))
+                var userInfoResult = await googleApiClient.GetUserInfoAsync(tokenResponse.AccessToken);
+                if (userInfoResult.IsSuccess && !string.IsNullOrEmpty(userInfoResult.Value.Email))
                 {
-                    email = userInfo.Email;
+                    email = userInfoResult.Value.Email;
                 }
 
                 UserStorageProfile profile;
@@ -178,52 +144,52 @@ namespace TorreClou.Application.Services
                 if (!string.IsNullOrEmpty(email))
                 {
                     var inactiveProfileSpec = new BaseSpecification<UserStorageProfile>(
-                        p => p.UserId == userId 
-                            && p.ProviderType == StorageProviderType.GoogleDrive 
-                            && !p.IsActive 
-                            && p.Email != null 
+                        p => p.UserId == userId
+                            && p.ProviderType == StorageProviderType.GoogleDrive
+                            && !p.IsActive
+                            && p.Email != null
                             && p.Email.ToLower() == email.ToLower()
                     );
                     var inactiveProfile = await unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(inactiveProfileSpec);
-                    
+
                     if (inactiveProfile != null)
                     {
                         // Reactivate existing profile
                         logger.LogInformation("Reactivating inactive profile {ProfileId} for user {UserId} with email {Email}", inactiveProfile.Id, userId, email);
                         profile = inactiveProfile;
                         profile.IsActive = true;
-                        
+
                         // Update profile name if provided
                         if (!string.IsNullOrWhiteSpace(profileName))
                         {
                             profile.ProfileName = profileName.Trim();
                         }
-                        
+
                         isReactivation = true;
                     }
                     else
                     {
                         // Check for active duplicate (prevent duplicates)
                         var duplicateSpec = new BaseSpecification<UserStorageProfile>(
-                            p => p.UserId == userId 
-                                && p.ProviderType == StorageProviderType.GoogleDrive 
-                                && p.IsActive 
-                                && p.Email != null 
+                            p => p.UserId == userId
+                                && p.ProviderType == StorageProviderType.GoogleDrive
+                                && p.IsActive
+                                && p.Email != null
                                 && p.Email.ToLower() == email.ToLower()
                         );
                         var duplicateProfile = await unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(duplicateSpec);
-                        
+
                         if (duplicateProfile != null)
                         {
                             logger.LogWarning("Attempt to connect duplicate email {Email} for user {UserId}", email, userId);
-                            return Result<int>.Failure("DUPLICATE_EMAIL", $"This Google account ({email}) is already connected. Please use a different account.");
+                            return Result<int>.Failure(ErrorCode.DuplicateEmail, $"This Google account ({email}) is already connected. Please use a different account.");
                         }
 
                         // Create new profile
-                        var finalProfileName = !string.IsNullOrWhiteSpace(profileName) 
-                            ? profileName.Trim() 
-                            : (!string.IsNullOrEmpty(email) 
-                                ? $"Google Drive ({email})" 
+                        var finalProfileName = !string.IsNullOrWhiteSpace(profileName)
+                            ? profileName.Trim()
+                            : (!string.IsNullOrEmpty(email)
+                                ? $"Google Drive ({email})"
                                 : "My Google Drive");
 
                         profile = new UserStorageProfile
@@ -241,8 +207,8 @@ namespace TorreClou.Application.Services
                 else
                 {
                     // No email available - create new profile
-                    var finalProfileName = !string.IsNullOrWhiteSpace(profileName) 
-                        ? profileName.Trim() 
+                    var finalProfileName = !string.IsNullOrWhiteSpace(profileName)
+                        ? profileName.Trim()
                         : "My Google Drive";
 
                     profile = new UserStorageProfile
@@ -317,143 +283,8 @@ namespace TorreClou.Application.Services
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error handling OAuth callback");
-                return Result<int>.Failure("OAUTH_CALLBACK_ERROR", "Failed to complete OAuth flow");
+                return Result<int>.Failure(ErrorCode.OAuthCallbackError, "Failed to complete OAuth flow");
             }
         }
-
-        private async Task<TokenResponse?> ExchangeCodeForTokensAsync(
-            string code,
-            string clientId,
-            string clientSecret,
-            string redirectUri)
-        {
-            try
-            {
-                var httpClient = httpClientFactory.CreateClient();
-                var requestBody = new Dictionary<string, string>
-                {
-                    { "code", code },
-                    { "client_id", clientId },
-                    { "client_secret", clientSecret },
-                    { "redirect_uri", redirectUri },
-                    { "grant_type", "authorization_code" }
-                };
-
-                var content = new FormUrlEncodedContent(requestBody);
-                var response = await httpClient.PostAsync("https://oauth2.googleapis.com/token", content);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    logger.LogError("Token exchange failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return null;
-                }
-
-                var jsonResponse = await response.Content.ReadAsStringAsync();
-                var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(jsonResponse);
-                
-                // Log token exchange result
-                if (tokenResponse != null)
-                {
-                    if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
-                    {
-                        logger.LogWarning("Token exchange response missing refresh_token. Access token expires in {ExpiresIn} seconds.", tokenResponse.ExpiresIn);
-                    }
-                    else
-                    {
-                        logger.LogInformation("Token exchange successful. Access token expires in {ExpiresIn} seconds. Refresh token present.", tokenResponse.ExpiresIn);
-                    }
-                }
-                
-                return tokenResponse;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Exception during token exchange");
-                return null;
-            }
-        }
-
-        private async Task<UserInfoResponse?> GetUserInfoAsync(string accessToken)
-        {
-            // Validate access token
-            if (string.IsNullOrWhiteSpace(accessToken))
-            {
-                logger.LogWarning("Access token is empty, skipping user info fetch");
-                return null;
-            }
-
-            try
-            {
-                var httpClient = httpClientFactory.CreateClient();
-                
-                // Clear any existing headers to avoid conflicts
-                httpClient.DefaultRequestHeaders.Clear();
-                
-                // Set Authorization header with Bearer token
-                httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken.Trim());
-
-                // Use the correct Google UserInfo API endpoint
-                var response = await httpClient.GetAsync("https://www.googleapis.com/oauth2/v2/userinfo");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    logger.LogCritical(
-                        "Failed to fetch user info: {StatusCode} - {Error}. Access token length: {TokenLength}", 
-                        response.StatusCode, 
-                        errorContent,
-                        accessToken.Length);
-                    return null;
-                }
-
-                var jsonResponse = await response.Content.ReadAsStringAsync();
-                var userInfo = JsonSerializer.Deserialize<UserInfoResponse>(jsonResponse);
-                
-                if (userInfo != null && !string.IsNullOrEmpty(userInfo.Email))
-                {
-                    logger.LogInformation("Successfully fetched user email: {Email}", userInfo.Email);
-                }
-                
-                return userInfo;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Exception while fetching user info (non-critical). Access token present: {HasToken}", !string.IsNullOrWhiteSpace(accessToken));
-                return null; // Non-critical, continue without email
-            }
-        }
-
-        private Result ValidateProfileName(string profileName)
-        {
-            if (string.IsNullOrWhiteSpace(profileName))
-            {
-                return Result.Failure("INVALID_PROFILE_NAME", "Profile name cannot be empty");
-            }
-
-            var trimmed = profileName.Trim();
-
-            if (trimmed.Length < 3)
-            {
-                return Result.Failure("PROFILE_NAME_TOO_SHORT", "Profile name must be at least 3 characters");
-            }
-
-            if (trimmed.Length > 50)
-            {
-                return Result.Failure("PROFILE_NAME_TOO_LONG", "Profile name must be at most 50 characters");
-            }
-
-            // Allow alphanumeric, spaces, hyphens, underscores
-            var allowedPattern = new System.Text.RegularExpressions.Regex(@"^[a-zA-Z0-9\s\-_]+$");
-            if (!allowedPattern.IsMatch(trimmed))
-            {
-                return Result.Failure("INVALID_PROFILE_NAME", "Profile name can only contain letters, numbers, spaces, hyphens, and underscores");
-            }
-
-            return Result.Success();
-        }
-
     }
 }
-

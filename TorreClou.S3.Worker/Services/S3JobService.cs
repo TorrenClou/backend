@@ -3,6 +3,7 @@ using Amazon.S3.Model;
 using System.Text.Json;
 using TorreClou.Core.DTOs.Storage.S3;
 using TorreClou.Core.Entities.Jobs;
+using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using Microsoft.Extensions.Logging;
@@ -37,7 +38,7 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogError("{LogPrefix} UserStorageProfile is null", logPrefix);
                 return Result<(string, string, string, string)>.Failure(
-                    "INVALID_PROFILE",
+                    ErrorCode.InvalidProfile,
                     "Storage profile does not exist");
             }
 
@@ -45,7 +46,7 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogWarning("{LogPrefix} Profile {ProfileId} is inactive", logPrefix, profile.Id);
                 return Result<(string, string, string, string)>.Failure(
-                    "INACTIVE_PROFILE",
+                    ErrorCode.InactiveProfile,
                     "Storage profile is not active");
             }
 
@@ -54,7 +55,7 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogError("{LogPrefix} Profile {ProfileId} has no credentials", logPrefix, profile.Id);
                 return Result<(string, string, string, string)>.Failure(
-                    "NO_CREDENTIALS",
+                    ErrorCode.NoCredentials,
                     "User has not configured S3 credentials in their storage profile");
             }
 
@@ -69,7 +70,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogError(ex, "{LogPrefix} Failed to parse CredentialsJson for Profile {ProfileId}",
                     logPrefix, profile.Id);
                 return Result<(string, string, string, string)>.Failure(
-                    "INVALID_CREDENTIALS_JSON",
+                    ErrorCode.InvalidCredentialsJson,
                     "Credentials JSON is malformed or corrupted");
             }
 
@@ -78,7 +79,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogError("{LogPrefix} Deserialized credentials are null for Profile {ProfileId}",
                     logPrefix, profile.Id);
                 return Result<(string, string, string, string)>.Failure(
-                    "INVALID_CREDENTIALS_JSON",
+                    ErrorCode.InvalidCredentialsJson,
                     "Credentials JSON is malformed or corrupted");
             }
 
@@ -94,7 +95,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogError("{LogPrefix} Profile {ProfileId} missing required fields: {Fields}",
                     logPrefix, profile.Id, string.Join(", ", missingFields));
                 return Result<(string, string, string, string)>.Failure(
-                    "MISSING_REQUIRED_FIELDS",
+                    ErrorCode.MissingRequiredFields,
                     $"Required credentials fields missing: {string.Join(", ", missingFields)}");
             }
 
@@ -114,7 +115,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogError("{LogPrefix} Bucket access test failed | Profile: {ProfileId} | Error: {Error}",
                     logPrefix, profile.Id, accessTestResult.Error.Message);
                 return Result<(string, string, string, string)>.Failure(
-                    "BUCKET_ACCESS_DENIED",
+                    ErrorCode.BucketAccessDenied,
                     $"Cannot access S3 bucket with provided credentials: {accessTestResult.Error.Message}");
             }
 
@@ -170,7 +171,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogWarning("{LogPrefix} Bucket access denied | Bucket: {Bucket} | StatusCode: {Status}",
                     logPrefix, bucketName, ex.StatusCode);
                 return Result<bool>.Failure(
-                    "ACCESS_DENIED",
+                    ErrorCode.AccessDenied,
                     $"Access denied to bucket '{bucketName}'. Check credentials and bucket permissions.");
             }
             catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -178,7 +179,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogWarning("{LogPrefix} Bucket not found | Bucket: {Bucket}",
                     logPrefix, bucketName);
                 return Result<bool>.Failure(
-                    "BUCKET_NOT_FOUND",
+                    ErrorCode.BucketNotFound,
                     $"Bucket '{bucketName}' does not exist or is not accessible.");
             }
             catch (AmazonS3Exception ex)
@@ -186,7 +187,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogError(ex, "{LogPrefix} S3 error testing bucket access | Bucket: {Bucket} | StatusCode: {Status}",
                     logPrefix, bucketName, ex.StatusCode);
                 return Result<bool>.Failure(
-                    "S3_ERROR",
+                    ErrorCode.S3Error,
                     $"S3 error: {ex.Message}");
             }
             catch (Exception ex)
@@ -194,7 +195,7 @@ namespace TorreClou.S3.Worker.Services
                 _logger.LogError(ex, "{LogPrefix} Unexpected error testing bucket access | Bucket: {Bucket}",
                     logPrefix, bucketName);
                 return Result<bool>.Failure(
-                    "UNEXPECTED_ERROR",
+                    ErrorCode.UnexpectedError,
                     $"Unexpected error testing bucket access: {ex.Message}");
             }
         }

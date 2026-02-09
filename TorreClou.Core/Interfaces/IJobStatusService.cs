@@ -1,3 +1,4 @@
+using TorreClou.Core.DTOs.Common;
 using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
@@ -39,6 +40,11 @@ namespace TorreClou.Core.Interfaces
         /// <param name="jobId">The job ID.</param>
         /// <returns>List of timeline entries ordered by change time.</returns>
         Task<IReadOnlyList<JobTimelineEntryDto>> GetJobTimelineAsync(int jobId);
+
+        /// <summary>
+        /// Gets the paginated status timeline for a job.
+        /// </summary>
+        Task<PaginatedResult<JobTimelineEntryDto>> GetJobTimelinePaginatedAsync(int jobId, int pageNumber, int pageSize);
 
     }
 }

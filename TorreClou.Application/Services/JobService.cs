@@ -32,12 +32,12 @@ namespace TorreClou.Application.Services
             // 1. Load torrent file
             var torrentFile = await unitOfWork.Repository<RequestedFile>().GetByIdAsync(torrentFileId);
             if (torrentFile == null)
-                return Result<JobCreationResult>.Failure("TORRENT_NOT_FOUND", "Torrent file not found.");
+                return Result<JobCreationResult>.Failure(ErrorCode.TorrentNotFound, "Torrent file not found.");
 
             // 2. Check for existing active jobs
             var existingJobCheck = await CheckExistingActiveJobAsync(userId, torrentFileId);
             if (existingJobCheck.IsFailure)
-                return Result<JobCreationResult>.Failure(existingJobCheck.Error.Code, existingJobCheck.Error.Message);
+                return Result<JobCreationResult>.Failure(existingJobCheck.Error);
 
             // 3. Validate storage profile
             UserStorageProfile? defaultStorageProfile;
@@ -45,7 +45,7 @@ namespace TorreClou.Application.Services
             {
                 defaultStorageProfile = await unitOfWork.Repository<UserStorageProfile>().GetByIdAsync(storageProfileId.Value);
                 if (defaultStorageProfile == null || defaultStorageProfile.UserId != userId || !defaultStorageProfile.IsActive)
-                    return Result<JobCreationResult>.Failure("INVALID_STORAGE_PROFILE", "Invalid or inactive storage profile.");
+                    return Result<JobCreationResult>.Failure(ErrorCode.InvalidStorageProfile, "Invalid or inactive storage profile.");
             }
             else
             {
@@ -54,7 +54,7 @@ namespace TorreClou.Application.Services
                 
                 var profileValidation = ValidateStorageProfileForJob(defaultStorageProfile, userId);
                 if (profileValidation.IsFailure)
-                    return Result<JobCreationResult>.Failure(profileValidation.Error.Code, profileValidation.Error.Message);
+                    return Result<JobCreationResult>.Failure(profileValidation.Error);
 
                 defaultStorageProfile = profileValidation.Value;
             }
@@ -160,7 +160,7 @@ namespace TorreClou.Application.Services
             if (job == null)
             {
                 logger.LogWarning("Job not found | JobId: {JobId} | UserId: {UserId}", jobId, userId);
-                return Result<JobDto>.Failure("NOT_FOUND", "Job not found.");
+                return Result<JobDto>.Failure(ErrorCode.NotFound, "Job not found.");
             }
 
             // Fetch timeline
@@ -253,7 +253,7 @@ namespace TorreClou.Application.Services
             // 2. Validate job exists and user is authorized
             var jobValidation = ValidateJobExistsAndAuthorized(job, userId, userRole, "retry");
             if (jobValidation.IsFailure)
-                return Result<bool>.Failure(jobValidation.Error.Code, jobValidation.Error.Message);
+                return Result<bool>.Failure(jobValidation.Error);
 
             job = jobValidation.Value;
 
@@ -331,7 +331,7 @@ namespace TorreClou.Application.Services
             // 2. Validate job exists and user is authorized
             var jobValidation = ValidateJobExistsAndAuthorized(job, userId, userRole, "cancel");
             if (jobValidation.IsFailure)
-                return Result<bool>.Failure(jobValidation.Error.Code, jobValidation.Error.Message);
+                return Result<bool>.Failure(jobValidation.Error);
 
             job = jobValidation.Value;
 
@@ -401,13 +401,13 @@ namespace TorreClou.Application.Services
             if (job == null)
             {
                 logger.LogWarning("Job not found for {Operation} | UserId: {UserId}", operation, userId);
-                return Result<UserJob>.Failure("JOB_NOT_FOUND", "Job not found.");
+                return Result<UserJob>.Failure(ErrorCode.JobNotFound, "Job not found.");
             }
 
             if (userRole != UserRole.Admin && job.UserId != userId)
             {
                 logger.LogWarning("Unauthorized {Operation} attempt | JobId: {JobId} | UserId: {UserId}", operation, job.Id, userId);
-                return Result<UserJob>.Failure("UNAUTHORIZED", $"You don't have permission to {operation.ToLower()} this job.");
+                return Result<UserJob>.Failure(ErrorCode.Unauthorized, $"You don't have permission to {operation.ToLower()} this job.");
             }
 
             return Result.Success(job);
@@ -418,13 +418,13 @@ namespace TorreClou.Application.Services
             if (job.Status == JobStatus.COMPLETED)
             {
                 logger.LogWarning("Attempt to retry completed job | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
-                return Result<bool>.Failure("JOB_COMPLETED", "Cannot retry a completed job.");
+                return Result<bool>.Failure(ErrorCode.JobCompleted, "Cannot retry a completed job.");
             }
 
             if (job.Status == JobStatus.CANCELLED)
             {
                 logger.LogWarning("Attempt to retry cancelled job | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
-                return Result<bool>.Failure("JOB_CANCELLED", "Cannot retry a cancelled job.");
+                return Result<bool>.Failure(ErrorCode.JobCancelled, "Cannot retry a cancelled job.");
             }
 
 
@@ -432,14 +432,14 @@ namespace TorreClou.Application.Services
             if (job.Status.IsActive())
             {
                 logger.LogWarning("Attempt to retry active job | JobId: {JobId} | Status: {Status} | UserId: {UserId}", job.Id, job.Status, userId);
-                return Result<bool>.Failure("JOB_ACTIVE",
+                return Result<bool>.Failure(ErrorCode.JobActive,
                     $"Job is currently {job.Status}. Wait for it to complete or fail before retrying.");
             }
 
             if (job.StorageProfile == null || !job.StorageProfile.IsActive)
             {
                 logger.LogWarning("Attempt to retry job with inactive storage profile | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
-                return Result<bool>.Failure("STORAGE_INACTIVE",
+                return Result<bool>.Failure(ErrorCode.StorageInactive,
                     "The storage profile for this job is no longer active.");
             }
 
@@ -451,27 +451,27 @@ namespace TorreClou.Application.Services
             if (job.Status == JobStatus.COMPLETED)
             {
                 logger.LogWarning("Attempt to cancel completed job | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
-                return Result<bool>.Failure("JOB_COMPLETED", "Cannot cancel a completed job.");
+                return Result<bool>.Failure(ErrorCode.JobCompleted, "Cannot cancel a completed job.");
             }
 
             if (job.Status == JobStatus.CANCELLED)
             {
                 logger.LogWarning("Attempt to cancel already cancelled job | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
-                return Result<bool>.Failure("JOB_ALREADY_CANCELLED", "Job is already cancelled.");
+                return Result<bool>.Failure(ErrorCode.JobAlreadyCancelled, "Job is already cancelled.");
             }
 
             // Prevent cancellation during upload phase
             if (IsUploadPhase(job.Status))
             {
                 logger.LogWarning("Attempt to cancel job during upload phase | JobId: {JobId} | Status: {Status} | UserId: {UserId}", job.Id, job.Status, userId);
-                return Result<bool>.Failure("JOB_IN_UPLOAD_PHASE",
+                return Result<bool>.Failure(ErrorCode.JobInUploadPhase,
                     "Cannot cancel a job during upload phase. Please wait for the upload to complete.");
             }
 
             if (!job.Status.IsActive() && !job.Status.IsFailed())
             {
                 logger.LogWarning("Attempt to cancel non-cancellable job | JobId: {JobId} | Status: {Status} | UserId: {UserId}", job.Id, job.Status, userId);
-                return Result<bool>.Failure("JOB_NOT_CANCELLABLE",
+                return Result<bool>.Failure(ErrorCode.JobNotCancellable,
                     $"Job status {job.Status} cannot be cancelled.");
             }
 
@@ -487,7 +487,7 @@ namespace TorreClou.Application.Services
             if (profile == null)
             {
                 logger.LogWarning("No active storage profile found for job creation | UserId: {UserId}", userId);
-                return Result<UserStorageProfile>.Failure("NO_STORAGE", "You don't have any stored or active Storage Destination");
+                return Result<UserStorageProfile>.Failure(ErrorCode.NoStorage, "You don't have any stored or active Storage Destination");
             }
 
             return Result.Success(profile);
@@ -526,12 +526,12 @@ namespace TorreClou.Application.Services
                     var nextRetry = existingJob.NextRetryAt.HasValue
                         ? $" Next retry: {existingJob.NextRetryAt.Value:u}" : "";
                     logger.LogWarning("Attempt to create job while existing job is retrying | ExistingJobId: {ExistingJobId} | RequestFileId: {RequestFileId} | UserId: {UserId}", existingJob.Id, requestFileId, userId);
-                    return Result<UserJob?>.Failure("JOB_RETRYING",
+                    return Result<UserJob?>.Failure(ErrorCode.JobRetrying,
                         $"Job {existingJob.Id} is currently retrying.{nextRetry}");
                 }
 
                 logger.LogWarning("Attempt to create job while active job exists | ExistingJobId: {ExistingJobId} | Status: {Status} | RequestFileId: {RequestFileId} | UserId: {UserId}", existingJob.Id, existingJob.Status, requestFileId, userId);
-                return Result<UserJob?>.Failure("JOB_ALREADY_EXISTS",
+                return Result<UserJob?>.Failure(ErrorCode.JobAlreadyExists,
                     $"Active job exists. ID: {existingJob.Id}, Status: {existingJob.Status}");
             }
 

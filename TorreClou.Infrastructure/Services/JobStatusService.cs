@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using TorreClou.Core.DTOs.Common;
 using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
@@ -100,6 +101,21 @@ namespace TorreClou.Infrastructure.Services
             return MapToJobTimelineEntries(historyEntries);
         }
 
+        /// <inheritdoc />
+        public async Task<PaginatedResult<JobTimelineEntryDto>> GetJobTimelinePaginatedAsync(int jobId, int pageNumber, int pageSize)
+        {
+            var spec = new JobTimelineSpecification(jobId, pageNumber, pageSize);
+            var totalCount = await unitOfWork.Repository<JobStatusHistory>().CountAsync(h => h.JobId == jobId);
+            var historyEntries = await unitOfWork.Repository<JobStatusHistory>().ListAsync(spec);
+
+            return new PaginatedResult<JobTimelineEntryDto>
+            {
+                Items = MapToJobTimelineEntries(historyEntries),
+                TotalCount = totalCount,
+                PageNumber = pageNumber,
+                PageSize = pageSize
+            };
+        }
 
         private static List<JobTimelineEntryDto> MapToJobTimelineEntries(IReadOnlyList<JobStatusHistory> entries)
         {
