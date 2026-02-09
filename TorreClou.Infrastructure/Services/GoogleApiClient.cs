@@ -92,12 +92,18 @@ namespace TorreClou.Infrastructure.Services
                 var jsonResponse = await response.Content.ReadAsStringAsync();
                 var userInfo = JsonSerializer.Deserialize<UserInfoResponse>(jsonResponse);
 
-                if (userInfo != null && !string.IsNullOrEmpty(userInfo.Email))
+                if (userInfo == null)
+                {
+                    logger.LogError("Failed to deserialize user info response. Response length: {Length}", jsonResponse.Length);
+                    return Result<UserInfoResponse>.Failure(ErrorCode.InvalidResponse, "Failed to deserialize user info");
+                }
+
+                if (!string.IsNullOrEmpty(userInfo.Email))
                 {
                     logger.LogInformation("Successfully fetched user email: {Email}", userInfo.Email);
                 }
 
-                return Result.Success(userInfo!);
+                return Result.Success(userInfo);
             }
             catch (Exception ex)
             {

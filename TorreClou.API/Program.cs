@@ -51,27 +51,54 @@ try
 
     var app = builder.Build();
 
-    // Apply database migrations automatically on startup
+    // Conditionally apply database migrations at startup (gated by config flag)
+    var applyMigrations = app.Configuration.GetValue<bool>("APPLY_MIGRATIONS");
+
     using (var scope = app.Services.CreateScope())
     {
         var services = scope.ServiceProvider;
-        try
+        var logger = services.GetRequiredService<ILogger<Program>>();
+
+        if (!applyMigrations)
         {
-            var context = services.GetRequiredService<TorreClou.Infrastructure.Data.ApplicationDbContext>();
-            var logger = services.GetRequiredService<ILogger<Program>>();
-            
-            logger.LogInformation("Checking for pending database migrations...");
-            
-            // This will create the database if it doesn't exist and apply all pending migrations
-            context.Database.Migrate();
-            
-            logger.LogInformation("Database migrations applied successfully");
+            logger.LogInformation("Database migrations skipped (APPLY_MIGRATIONS=false)");
         }
-        catch (Exception ex)
+        else
         {
-            var logger = services.GetRequiredService<ILogger<Program>>();
-            logger.LogError(ex, "An error occurred while migrating the database");
-            throw;
+            try
+            {
+                var context = services.GetRequiredService<TorreClou.Infrastructure.Data.ApplicationDbContext>();
+                logger.LogInformation("Acquiring advisory lock for database migration...");
+
+                // Use PostgreSQL advisory lock to prevent concurrent migration attempts
+                const int advisoryLockId = 839_275_194;
+
+                using var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                using var lockCommand = connection.CreateCommand();
+                lockCommand.CommandText = $"SELECT pg_advisory_lock({advisoryLockId})";
+                await lockCommand.ExecuteNonQueryAsync();
+
+                try
+                {
+                    logger.LogInformation("Advisory lock acquired. Checking for pending database migrations...");
+                    await context.Database.MigrateAsync();
+                    logger.LogInformation("Database migrations applied successfully");
+                }
+                finally
+                {
+                    using var unlockCommand = connection.CreateCommand();
+                    unlockCommand.CommandText = $"SELECT pg_advisory_unlock({advisoryLockId})";
+                    await unlockCommand.ExecuteNonQueryAsync();
+                    logger.LogInformation("Advisory lock released");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An error occurred while migrating the database");
+                throw;
+            }
         }
     }
 

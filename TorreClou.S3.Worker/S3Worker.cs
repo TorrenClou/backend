@@ -55,13 +55,33 @@ namespace TorreClou.S3.Worker
             var hangfireJobId = backgroundJobClient.Enqueue<IS3UploadJob>(
                 service => service.ExecuteAsync(jobId.Value, CancellationToken.None));
 
-            // 5. Update State
-            job.HangfireUploadJobId = hangfireJobId;
-            job.Status = JobStatus.PENDING_UPLOAD;
-            job.CurrentState = "Queued for S3 Upload";
-            job.LastHeartbeat = DateTime.UtcNow;
+            // 5. Persist Hangfire job reference to DB (with rollback on failure)
+            try
+            {
+                job.HangfireUploadJobId = hangfireJobId;
+                job.Status = JobStatus.PENDING_UPLOAD;
+                job.CurrentState = "Queued for S3 Upload";
+                job.LastHeartbeat = DateTime.UtcNow;
 
-            await unitOfWork.Complete();
+                await unitOfWork.Complete();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[S3_WORKER] DB persist failed after enqueue | JobId: {JobId} | HfId: {HfId}. Deleting Hangfire job.",
+                    jobId, hangfireJobId);
+
+                try
+                {
+                    backgroundJobClient.Delete(hangfireJobId);
+                    Logger.LogInformation("[S3_WORKER] Deleted orphaned Hangfire job | HfId: {HfId}", hangfireJobId);
+                }
+                catch (Exception deleteEx)
+                {
+                    Logger.LogError(deleteEx, "[S3_WORKER] Failed to delete orphaned Hangfire job | HfId: {HfId}", hangfireJobId);
+                }
+
+                throw;
+            }
 
             Logger.LogInformation("[S3_WORKER] Success | JobId: {JobId} -> HF: {HfId}", jobId, hangfireJobId);
 

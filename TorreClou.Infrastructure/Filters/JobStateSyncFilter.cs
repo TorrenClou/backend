@@ -25,7 +25,7 @@ namespace TorreClou.Infrastructure.Filters
                 var errorMessage = failedState.Exception.Message;
 
                 // 2. Update UserJob status to failed
-                UpdateUserJobStatusToFailed(id, errorMessage).GetAwaiter().GetResult();
+                UpdateUserJobStatusToFailed(id, errorMessage, context.BackgroundJob.Id).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -33,7 +33,7 @@ namespace TorreClou.Infrastructure.Filters
             }
         }
 
-        private async Task UpdateUserJobStatusToFailed(int jobId, string error)
+        private async Task UpdateUserJobStatusToFailed(int jobId, string error, string hangfireJobId)
         {
             using var scope = scopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
@@ -60,7 +60,7 @@ namespace TorreClou.Infrastructure.Filters
                 failureStatus,
                 StatusChangeSource.System,
                 $"System Failure: {error}",
-                new { exhaustedRetries = true, hangfireJobId = jobId });
+                new { exhaustedRetries = true, userJobId = jobId, hangfireJobId });
         }
     }
 }

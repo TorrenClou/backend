@@ -1,3 +1,4 @@
+using TorreClou.Application.Validators;
 using TorreClou.Core.DTOs.Storage;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
@@ -19,11 +20,24 @@ namespace TorreClou.Application.Services.Storage
             string s3Region,
             bool setAsDefault)
         {
-            if (string.IsNullOrWhiteSpace(profileName))
-                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidProfileName, "Profile name is required");
+            var profileNameValidation = StorageProfileValidator.ValidateProfileName(profileName);
+            if (profileNameValidation.IsFailure)
+                return Result<StorageProfileResultDto>.Failure(profileNameValidation.Error);
 
-            if (string.IsNullOrWhiteSpace(s3Endpoint) || string.IsNullOrWhiteSpace(s3BucketName))
-                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidS3Config, "S3 endpoint and bucket name are required");
+            if (string.IsNullOrWhiteSpace(s3Endpoint))
+                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidS3Config, "S3 endpoint is required");
+
+            if (string.IsNullOrWhiteSpace(s3BucketName))
+                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidS3Config, "S3 bucket name is required");
+
+            if (string.IsNullOrWhiteSpace(s3AccessKey))
+                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidS3Config, "S3 access key is required");
+
+            if (string.IsNullOrWhiteSpace(s3SecretKey))
+                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidS3Config, "S3 secret key is required");
+
+            if (string.IsNullOrWhiteSpace(s3Region))
+                return Result<StorageProfileResultDto>.Failure(ErrorCode.InvalidS3Config, "S3 region is required");
 
             var credentialsJson = System.Text.Json.JsonSerializer.Serialize(new
             {

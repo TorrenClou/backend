@@ -35,6 +35,12 @@ namespace TorreClou.S3.Worker.Services
         // Heartbeat independent from progress
         private const int HeartbeatIntervalSeconds = 15;
 
+        // Per-execution state for lock renewal and multipart abort on failure
+        private IRedisLock? _distributedLock;
+        private CancellationTokenSource? _lockLossCts;
+        private IS3ResumableUploadService? _activeUploadService;
+        private string? _activeBucketName;
+
         protected override string LogPrefix => "[S3:UPLOAD]";
 
         protected override void ConfigureSpecification(BaseSpecification<UserJob> spec)
@@ -42,11 +48,6 @@ namespace TorreClou.S3.Worker.Services
             spec.AddInclude(j => j.StorageProfile);
         }
 
-        [Queue("s3")]
-        [AutomaticRetry(
-            Attempts = 3,
-            DelaysInSeconds = new[] { 60, 300, 900 },
-            OnAttemptsExceeded = AttemptsExceededAction.Fail)]
         public new async Task ExecuteAsync(int jobId, CancellationToken cancellationToken = default)
         {
             await base.ExecuteAsync(jobId, cancellationToken);
@@ -65,6 +66,8 @@ namespace TorreClou.S3.Worker.Services
                 Logger.LogWarning("{LogPrefix} Job already being processed | JobId: {JobId}", LogPrefix, job.Id);
                 return;
             }
+
+            _distributedLock = distributedLock;
 
             Logger.LogInformation("{LogPrefix} Acquired lock | JobId: {JobId} | Expiry: {Expiry}",
                 LogPrefix, job.Id, lockExpiry);
@@ -103,6 +106,8 @@ namespace TorreClou.S3.Worker.Services
 
             // 3.2. Create S3ResumableUploadService instance with user's S3 client
             var s3UploadService = _s3UploadServiceFactory.Create(s3Client);
+            _activeUploadService = s3UploadService;
+            _activeBucketName = bucketName;
 
             Logger.LogDebug("{LogPrefix} Created S3 client and upload service | JobId: {JobId}",
                 LogPrefix, job.Id);
@@ -154,8 +159,9 @@ namespace TorreClou.S3.Worker.Services
                 return;
             }
 
-            // 6. Start heartbeat loop
-            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // 6. Start heartbeat loop (linked with lock-loss cancellation)
+            _lockLossCts = new CancellationTokenSource();
+            using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lockLossCts.Token);
             var heartbeatTask = RunHeartbeatLoopAsync(job.Id, heartbeatCts.Token);
 
             try
@@ -243,16 +249,56 @@ namespace TorreClou.S3.Worker.Services
             }
             finally
             {
-                // Ensure heartbeat stops
+                // Ensure heartbeat stops and clean up per-execution state
                 heartbeatCts.Cancel();
+                _lockLossCts?.Dispose();
+                _lockLossCts = null;
+                _distributedLock = null;
+                _activeUploadService = null;
+                _activeBucketName = null;
             }
         }
 
         /// <summary>
-        /// Override to clean up distributed lock on job failure
+        /// Override to abort multipart uploads, clean up distributed lock, then mark failed
         /// </summary>
         protected override async Task MarkJobFailedAsync(UserJob job, string errorMessage, bool hasRetries = false)
         {
+            // 1. Abort any in-progress S3 multipart uploads
+            if (_activeUploadService != null && _activeBucketName != null)
+            {
+                try
+                {
+                    var inProgressSpec = new BaseSpecification<S3SyncProgress>(
+                        p => p.JobId == job.Id && p.Status == S3UploadProgressStatus.InProgress);
+                    var inProgressUploads = await UnitOfWork.Repository<S3SyncProgress>().ListAsync(inProgressSpec);
+
+                    foreach (var upload in inProgressUploads)
+                    {
+                        if (!string.IsNullOrEmpty(upload.UploadId))
+                        {
+                            try
+                            {
+                                Logger.LogInformation("{LogPrefix} Aborting multipart upload | JobId: {JobId} | Key: {Key} | UploadId: {UploadId}",
+                                    LogPrefix, job.Id, upload.S3Key, upload.UploadId);
+                                await _activeUploadService.AbortUploadAsync(_activeBucketName, upload.S3Key, upload.UploadId);
+                            }
+                            catch (Exception abortEx)
+                            {
+                                Logger.LogWarning(abortEx, "{LogPrefix} Failed to abort multipart upload | JobId: {JobId} | Key: {Key} | UploadId: {UploadId}",
+                                    LogPrefix, job.Id, upload.S3Key, upload.UploadId);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "{LogPrefix} Failed to query/abort multipart uploads | JobId: {JobId}",
+                        LogPrefix, job.Id);
+                }
+            }
+
+            // 2. Delete the distributed lock
             try
             {
                 await _s3JobService.DeleteUploadLockAsync(job.Id);
@@ -292,6 +338,27 @@ namespace TorreClou.S3.Worker.Services
 
                     current.LastHeartbeat = DateTime.UtcNow;
                     await scopedUnitOfWork.Complete();
+
+                    // Refresh the distributed lock to prevent expiration during long uploads
+                    if (_distributedLock != null)
+                    {
+                        try
+                        {
+                            var refreshed = await _distributedLock.RefreshAsync();
+                            if (!refreshed || !_distributedLock.IsOwned)
+                            {
+                                Logger.LogError("{LogPrefix} Lock lost during upload! Cancelling | JobId: {JobId}", LogPrefix, jobId);
+                                _lockLossCts?.Cancel();
+                                return;
+                            }
+                        }
+                        catch (Exception lockEx)
+                        {
+                            Logger.LogError(lockEx, "{LogPrefix} Lock refresh failed | JobId: {JobId}", LogPrefix, jobId);
+                            _lockLossCts?.Cancel();
+                            return;
+                        }
+                    }
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
