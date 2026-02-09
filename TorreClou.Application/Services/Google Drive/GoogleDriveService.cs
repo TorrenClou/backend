@@ -33,7 +33,7 @@ namespace TorreClou.Application.Services.Google_Drive
 
             if (result.IsFailure)
             {
-                var errorRedirect = $"{redirectBase}?error={HttpUtility.UrlEncode(result.Error.Code)}&message={HttpUtility.UrlEncode(result.Error.Message)}";
+                var errorRedirect = $"{redirectBase}?error={HttpUtility.UrlEncode(result.Error.Code.ToString())}&message={HttpUtility.UrlEncode(result.Error.Message)}";
                 return errorRedirect;
             }
 

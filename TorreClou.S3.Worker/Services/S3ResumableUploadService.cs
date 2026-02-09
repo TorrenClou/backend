@@ -1,6 +1,7 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Logging;
+using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using PartETag = TorreClou.Core.Interfaces.PartETag;
@@ -46,13 +47,13 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogError(ex, "Failed to initiate multipart upload | Bucket: {Bucket} | Key: {Key}",
                     bucketName, s3Key);
-                return Result<string>.Failure("INIT_UPLOAD_FAILED", $"Failed to initiate upload: {ex.Message}");
+                return Result<string>.Failure(ErrorCode.InitUploadFailed, $"Failed to initiate upload: {ex.Message}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error initiating multipart upload | Bucket: {Bucket} | Key: {Key}",
                     bucketName, s3Key);
-                return Result<string>.Failure("INIT_UPLOAD_ERROR", $"Unexpected error: {ex.Message}");
+                return Result<string>.Failure(ErrorCode.InitUploadError, $"Unexpected error: {ex.Message}");
             }
         }
 
@@ -84,13 +85,13 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogError(ex, "Failed to upload part | Bucket: {Bucket} | Key: {Key} | PartNumber: {PartNumber}",
                     bucketName, s3Key, partNumber);
-                return Result<PartETag>.Failure("UPLOAD_PART_FAILED", $"Failed to upload part: {ex.Message}");
+                return Result<PartETag>.Failure(ErrorCode.UploadPartFailed, $"Failed to upload part: {ex.Message}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error uploading part | Bucket: {Bucket} | Key: {Key} | PartNumber: {PartNumber}",
                     bucketName, s3Key, partNumber);
-                return Result<PartETag>.Failure("UPLOAD_PART_ERROR", $"Unexpected error: {ex.Message}");
+                return Result<PartETag>.Failure(ErrorCode.UploadPartError, $"Unexpected error: {ex.Message}");
             }
         }
 
@@ -123,13 +124,13 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogError(ex, "Failed to complete multipart upload | Bucket: {Bucket} | Key: {Key} | UploadId: {UploadId}",
                     bucketName, s3Key, uploadId);
-                return Result.Failure("COMPLETE_UPLOAD_FAILED", $"Failed to complete upload: {ex.Message}");
+                return Result.Failure(ErrorCode.CompleteUploadFailed, $"Failed to complete upload: {ex.Message}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error completing multipart upload | Bucket: {Bucket} | Key: {Key} | UploadId: {UploadId}",
                     bucketName, s3Key, uploadId);
-                return Result.Failure("COMPLETE_UPLOAD_ERROR", $"Unexpected error: {ex.Message}");
+                return Result.Failure(ErrorCode.CompleteUploadError, $"Unexpected error: {ex.Message}");
             }
         }
 
@@ -194,13 +195,13 @@ namespace TorreClou.S3.Worker.Services
             {
                 _logger.LogError(ex, "Failed to list parts | Bucket: {Bucket} | Key: {Key} | UploadId: {UploadId}",
                     bucketName, s3Key, uploadId);
-                return Result<List<PartETag>>.Failure("LIST_PARTS_FAILED", $"Failed to list parts: {ex.Message}");
+                return Result<List<PartETag>>.Failure(ErrorCode.ListPartsFailed, $"Failed to list parts: {ex.Message}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error listing parts | Bucket: {Bucket} | Key: {Key} | UploadId: {UploadId}",
                     bucketName, s3Key, uploadId);
-                return Result<List<PartETag>>.Failure("LIST_PARTS_ERROR", $"Unexpected error: {ex.Message}");
+                return Result<List<PartETag>>.Failure(ErrorCode.ListPartsError, $"Unexpected error: {ex.Message}");
             }
         }
 

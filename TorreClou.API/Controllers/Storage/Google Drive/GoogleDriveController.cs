@@ -22,12 +22,8 @@ namespace TorreClou.API.Controllers.Storage
         [HttpPost("configure")]
         public async Task<IActionResult> ConfigureGoogleDrive([FromBody] ConfigureGoogleDriveRequestDto request)
         {
-            var result = await googleDriveService.ConfigureAndGetAuthUrlAsync(GetCurrentUserId(), request);
-
-            if (result.IsFailure)
-                return BadRequest(new { error = result.Error.Message, code = result.Error.Code });
-
-            return Ok(new GoogleDriveAuthResponse { AuthorizationUrl = result.Value });
+            var result = await googleDriveService.ConfigureAndGetAuthUrlAsync(UserId, request);
+            return HandleResult(result, url => new GoogleDriveAuthResponse { AuthorizationUrl = url });
         }
 
         [HttpGet("callback")]

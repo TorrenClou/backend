@@ -49,6 +49,12 @@ namespace TorreClou.Infrastructure.Extensions
             // Job Status Service (timeline tracking)
             services.AddScoped<IJobStatusService, JobStatusService>();
 
+            // Health Check Service
+            services.AddScoped<IHealthCheckService, HealthCheckService>();
+
+            // Google API Client (for OAuth token exchange and user info)
+            services.AddScoped<IGoogleApiClient, GoogleApiClient>();
+
             // Job Handlers (Strategy Pattern for decoupled job processing)
             // Storage Provider Handlers
             services.AddScoped<IStorageProviderHandler, GoogleDriveStorageProviderHandler>();

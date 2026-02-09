@@ -357,7 +357,7 @@ namespace TorreClou.S3.Worker.Services
                     {
                         Logger.LogError("{LogPrefix} Failed to initiate upload | JobId: {JobId} | Key: {Key} | Error: {Error}",
                             LogPrefix, job.Id, s3Key, init.Error.Message);
-                        return Result.Failure(init.Error.Code, init.Error.Message);
+                        return Result.Failure(init.Error);
                     }
 
                     uploadId = init.Value;
@@ -426,7 +426,7 @@ namespace TorreClou.S3.Worker.Services
                         {
                             Logger.LogError("{LogPrefix} Read mismatch | JobId: {JobId} | Part: {Part} | Expected: {Expected} | Actual: {Actual}",
                                 LogPrefix, job.Id, partNumber, currentPartSize, bytesRead);
-                            return Result.Failure("READ_ERROR", $"Read mismatch part {partNumber}");
+                            return Result.Failure(ErrorCode.ReadError, $"Read mismatch part {partNumber}");
                         }
 
                         using var partStream = new MemoryStream(buffer, 0, bytesRead);
@@ -441,7 +441,7 @@ namespace TorreClou.S3.Worker.Services
                         {
                             Logger.LogError("{LogPrefix} Part upload failed | JobId: {JobId} | Part: {Part} | Error: {Error}",
                                 LogPrefix, job.Id, partNumber, uploadPart.Error.Message);
-                            return Result.Failure(uploadPart.Error.Code, uploadPart.Error.Message);
+                            return Result.Failure(uploadPart.Error);
                         }
 
                         existingParts.Add(uploadPart.Value);
@@ -480,7 +480,7 @@ namespace TorreClou.S3.Worker.Services
                 {
                     Logger.LogError("{LogPrefix} Failed to complete multipart upload | JobId: {JobId} | Key: {Key} | Error: {Error}",
                         LogPrefix, job.Id, s3Key, comp.Error.Message);
-                    return Result.Failure(comp.Error.Code, comp.Error.Message);
+                    return Result.Failure(comp.Error);
                 }
 
                 progress.Status = S3UploadProgressStatus.Completed;
@@ -504,7 +504,7 @@ namespace TorreClou.S3.Worker.Services
             {
                 Logger.LogError(ex, "{LogPrefix} Upload error | JobId: {JobId} | File: {FileName} | Key: {Key} | Error: {Error}",
                     LogPrefix, job.Id, file.Name, s3Key, ex.Message);
-                return Result.Failure("UPLOAD_ERROR", ex.Message);
+                return Result.Failure(ErrorCode.UploadError, ex.Message);
             }
         }
 

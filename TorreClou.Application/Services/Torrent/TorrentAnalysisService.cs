@@ -1,4 +1,5 @@
 using TorreClou.Core.DTOs.Torrents;
+using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
@@ -16,7 +17,7 @@ namespace TorreClou.Application.Services.Torrent
 
             if (!IsActiveStorageProfile.IsSuccess)
                 return Result<QuoteResponseDto>.Failure(IsActiveStorageProfile.Error);
-             
+
            // 1. Validate & Parse Torrent
             var torrentFileValidated = ValidateTorrentFile(torrentFile, request.TorrentFile.FileName);
             if (!torrentFileValidated.IsSuccess)
@@ -24,7 +25,7 @@ namespace TorreClou.Application.Services.Torrent
 
             var torrentInfoResult = await torrentService.GetTorrentInfoFromTorrentFileAsync(torrentFileValidated.Value);
             if (!torrentInfoResult.IsSuccess || string.IsNullOrEmpty(torrentInfoResult.Value.InfoHash))
-                return Result<QuoteResponseDto>.Failure("Failed to parse torrent info.");
+                return Result<QuoteResponseDto>.Failure(ErrorCode.InvalidTorrent, "Failed to parse torrent info.");
 
             var torrentInfo = torrentInfoResult.Value;
 
@@ -41,7 +42,7 @@ namespace TorreClou.Application.Services.Torrent
             var torrentStoredResult = await torrentService.FindOrCreateTorrentFile(torrentInfo, userId, torrentFile);
 
             if (torrentStoredResult.IsFailure)
-                return Result<QuoteResponseDto>.Failure("Failed to save torrent information.");
+                return Result<QuoteResponseDto>.Failure(ErrorCode.InvalidTorrent, "Failed to save torrent information.");
 
             // 4. Return Response (no pricing, no invoice)
             return Result.Success(new QuoteResponseDto
@@ -61,11 +62,11 @@ namespace TorreClou.Application.Services.Torrent
         private Result<Stream> ValidateTorrentFile(Stream torrentFile, string torrentFileName)
         {
             if (torrentFile == null || torrentFile.Length == 0)
-                return Result<Stream>.Failure("No torrent file provided.");
+                return Result<Stream>.Failure(ErrorCode.Invalid, "No torrent file provided.");
 
             var fileExtension = Path.GetExtension(torrentFileName).ToLowerInvariant();
             if (fileExtension != ".torrent")
-                return Result<Stream>.Failure("Invalid file format. Only .torrent files are accepted.");
+                return Result<Stream>.Failure(ErrorCode.InvalidTorrent, "Invalid file format. Only .torrent files are accepted.");
 
             return Result<Stream>.Success(torrentFile);
         }
@@ -73,7 +74,7 @@ namespace TorreClou.Application.Services.Torrent
         private Result<long> CalculateStorage(List<string> selectedFilePaths, TorrentInfoDto torrentInfo)
         {
             if (torrentInfo.TotalSize == 0)
-                return Result.Failure<long>("Torrent total size is zero.");
+                return Result<long>.Failure(ErrorCode.Invalid, "Torrent total size is zero.");
 
             if (selectedFilePaths == null )
             {
@@ -85,7 +86,7 @@ namespace TorreClou.Application.Services.Torrent
                 .Sum(f => f.Size);
 
             if (targetSize == 0)
-                return Result.Failure<long>("Selected files resulted in 0 bytes size.");
+                return Result<long>.Failure(ErrorCode.Invalid, "Selected files resulted in 0 bytes size.");
 
             return Result.Success(targetSize);
         }

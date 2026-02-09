@@ -30,7 +30,7 @@ namespace TorreClou.API.Controllers
         /// Get the full status timeline for a specific job.
         /// </summary>
         [HttpGet("{id}/timeline")]
-        public async Task<IActionResult> GetJobTimeline(int id)
+        public async Task<IActionResult> GetJobTimeline(int id, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
         {
             // First verify the user has access to this job
             var jobResult = await jobService.GetJobByIdAsync(UserId, id);
@@ -39,7 +39,7 @@ namespace TorreClou.API.Controllers
                 return HandleResult(jobResult);
             }
 
-            var timeline = await jobStatusService.GetJobTimelineAsync(id);
+            var timeline = await jobStatusService.GetJobTimelinePaginatedAsync(id, pageNumber, pageSize);
             return Ok(timeline);
         }
 

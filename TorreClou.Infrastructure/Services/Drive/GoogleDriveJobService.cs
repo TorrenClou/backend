@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using TorreClou.Core.DTOs.Storage.GoogleDrive;
+using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Entities.Jobs;
@@ -29,20 +30,20 @@ namespace TorreClou.Infrastructure.Services.Drive
                 var credentials = JsonSerializer.Deserialize<GoogleDriveCredentials>(profile.CredentialsJson);
                 if (credentials == null || string.IsNullOrEmpty(credentials.AccessToken))
                 {
-                    return Result<string>.Failure("INVALID_CREDENTIALS", "Invalid credentials JSON");
+                    return Result<string>.Failure(ErrorCode.InvalidCredentials, "Invalid credentials JSON");
                 }
 
                 // Always refresh token at job start to prevent mid-job expiration
                 if (string.IsNullOrEmpty(credentials.RefreshToken))
                 {
-                    return Result<string>.Failure("NO_REFRESH_TOKEN", "No refresh token available");
+                    return Result<string>.Failure(ErrorCode.NoRefreshToken, "No refresh token available");
                 }
 
                 // Use profile credentials if available (configure flow), otherwise use environment settings
                 var refreshResult = await RefreshAccessTokenAsync(credentials, cancellationToken);
                 if (refreshResult.IsFailure)
                 {
-                    return Result<string>.Failure(refreshResult.Error.Code, refreshResult.Error.Message);
+                    return Result<string>.Failure(refreshResult.Error);
                 }
 
                 // Update credentials with new token and expiration
@@ -61,7 +62,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error getting access token from credentials");
-                return Result<string>.Failure("TOKEN_ERROR", "Failed to get access token");
+                return Result<string>.Failure(ErrorCode.TokenError, "Failed to get access token");
             }
         }
 
@@ -73,7 +74,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 if (string.IsNullOrEmpty(credentials.ClientId) || string.IsNullOrEmpty(credentials.ClientSecret))
                 {
                     logger.LogError("Google Drive credentials not found in storage profile. User must configure via /api/storage/gdrive/configure endpoint.");
-                    return Result<(string, int)>.Failure("MISSING_CREDENTIALS", "Google Drive credentials not found in storage profile. Please reconfigure your Google Drive connection.");
+                    return Result<(string, int)>.Failure(ErrorCode.MissingCredentials, "Google Drive credentials not found in storage profile. Please reconfigure your Google Drive connection.");
                 }
 
                 var clientId = credentials.ClientId;
@@ -95,7 +96,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                     logger.LogError("Token refresh failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return Result<(string, int)>.Failure("REFRESH_FAILED", "Failed to refresh access token");
+                    return Result<(string, int)>.Failure(ErrorCode.RefreshFailed, "Failed to refresh access token");
                 }
 
                 var jsonResponse = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -103,7 +104,7 @@ namespace TorreClou.Infrastructure.Services.Drive
 
                 if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
                 {
-                    return Result<(string, int)>.Failure("INVALID_RESPONSE", "Invalid token refresh response");
+                    return Result<(string, int)>.Failure(ErrorCode.InvalidResponse, "Invalid token refresh response");
                 }
 
                 return Result.Success((tokenResponse.AccessToken, tokenResponse.ExpiresIn));
@@ -111,7 +112,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             catch (Exception ex)
             {
                 logger.LogError(ex, "Exception during token refresh");
-                return Result<(string, int)>.Failure("REFRESH_ERROR", "Error refreshing access token");
+                return Result<(string, int)>.Failure(ErrorCode.RefreshError, "Error refreshing access token");
             }
         }
 
@@ -141,7 +142,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                     logger.LogError("Folder creation failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return Result<string>.Failure("FOLDER_CREATE_FAILED", $"Failed to create folder: {errorContent}");
+                    return Result<string>.Failure(ErrorCode.FolderCreateFailed, $"Failed to create folder: {errorContent}");
                 }
 
                 var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -149,7 +150,7 @@ namespace TorreClou.Infrastructure.Services.Drive
 
                 if (folderResponse == null || string.IsNullOrEmpty(folderResponse.Id))
                 {
-                    return Result<string>.Failure("INVALID_RESPONSE", "Invalid folder creation response");
+                    return Result<string>.Failure(ErrorCode.InvalidResponse, "Invalid folder creation response");
                 }
 
                 return Result.Success(folderResponse.Id);
@@ -157,7 +158,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             catch (Exception ex)
             {
                 logger.LogError(ex, "Exception creating folder: {FolderName}", folderName);
-                return Result<string>.Failure("FOLDER_CREATE_ERROR", "Error creating folder");
+                return Result<string>.Failure(ErrorCode.FolderCreateError, "Error creating folder");
             }
         }
 
@@ -232,7 +233,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             try
             {
                 if (!File.Exists(filePath))
-                    return Result<string>.Failure("FILE_NOT_FOUND", $"File not found: {filePath}");
+                    return Result<string>.Failure(ErrorCode.FileNotFound, $"File not found: {filePath}");
 
                 var fileInfo = new FileInfo(filePath);
                 var fileSize = fileInfo.Length;
@@ -273,7 +274,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                     var initResult = await InitiateResumableUploadAsync(fileName, folderId, fileSize, contentType, accessToken, cancellationToken);
                     if (initResult.IsFailure)
                     {
-                        return Result<string>.Failure(initResult.Error.Code, initResult.Error.Message);
+                        return Result<string>.Failure(initResult.Error);
                     }
                     resumeUri = initResult.Value;
 
@@ -299,7 +300,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             catch (Exception ex)
             {
                 logger.LogError(ex, "Exception uploading file: {FileName}", fileName);
-                return Result<string>.Failure("UPLOAD_ERROR", ex.Message);
+                return Result<string>.Failure(ErrorCode.UploadError, ex.Message);
             }
         }
 
@@ -330,13 +331,13 @@ namespace TorreClou.Infrastructure.Services.Drive
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 logger.LogError("Failed to initiate resumable upload: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                return Result<string>.Failure("INIT_FAILED", $"Failed to initiate upload: {errorContent}");
+                return Result<string>.Failure(ErrorCode.InitFailed, $"Failed to initiate upload: {errorContent}");
             }
 
             var uploadUri = response.Headers.Location?.ToString();
             if (string.IsNullOrEmpty(uploadUri))
             {
-                return Result<string>.Failure("INIT_FAILED", "No upload URI returned");
+                return Result<string>.Failure(ErrorCode.InitFailed, "No upload URI returned");
             }
 
             return Result.Success(uploadUri);
@@ -386,12 +387,12 @@ namespace TorreClou.Infrastructure.Services.Drive
                     return Result.Success(0L);
                 }
 
-                return Result<long>.Failure("STATUS_QUERY_FAILED", $"Unexpected status: {response.StatusCode}");
+                return Result<long>.Failure(ErrorCode.StatusQueryFailed, $"Unexpected status: {response.StatusCode}");
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to query upload status");
-                return Result<long>.Failure("STATUS_QUERY_ERROR", ex.Message);
+                return Result<long>.Failure(ErrorCode.StatusQueryError, ex.Message);
             }
         }
 
@@ -504,7 +505,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                     logger.LogError("Chunk upload failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return Result<string>.Failure("CHUNK_FAILED", $"Chunk upload failed: {response.StatusCode}");
+                    return Result<string>.Failure(ErrorCode.ChunkFailed, $"Chunk upload failed: {response.StatusCode}");
                 }
             }
 
@@ -539,7 +540,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 }
             }
 
-            return Result<string>.Failure("UPLOAD_INCOMPLETE", "Upload did not complete successfully");
+            return Result<string>.Failure(ErrorCode.UploadIncomplete, "Upload did not complete successfully");
         }
 
         public async Task<Result<string?>> CheckFileExistsAsync(string folderId, string fileName, string accessToken, CancellationToken cancellationToken = default)
@@ -561,7 +562,7 @@ namespace TorreClou.Infrastructure.Services.Drive
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                     logger.LogWarning("Failed to check file existence: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    return Result<string?>.Failure("CHECK_FAILED", $"Failed to check file existence: {errorContent}");
+                    return Result<string?>.Failure(ErrorCode.CheckFailed, $"Failed to check file existence: {errorContent}");
                 }
 
                 var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -581,7 +582,7 @@ namespace TorreClou.Infrastructure.Services.Drive
             catch (Exception ex)
             {
                 logger.LogError(ex, "Exception checking file existence: {FileName}", fileName);
-                return Result<string?>.Failure("CHECK_ERROR", $"Error checking file existence: {ex.Message}");
+                return Result<string?>.Failure(ErrorCode.CheckError, $"Error checking file existence: {ex.Message}");
             }
         }
 

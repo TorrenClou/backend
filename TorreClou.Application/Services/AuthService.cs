@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using TorreClou.Core.DTOs.Auth;
+using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Shared;
 using TorreClou.Core.Specifications;
@@ -32,7 +33,7 @@ namespace TorreClou.Application.Services
             if (string.IsNullOrEmpty(adminEmail) || string.IsNullOrEmpty(adminPassword))
             {
                 return Result<AuthResponseDto>.Failure(
-                    "SERVER_CONFIG_ERROR",
+                    ErrorCode.ServerConfigError,
                     "Admin credentials not configured. Set ADMIN_EMAIL and ADMIN_PASSWORD in environment variables.");
             }
 
@@ -40,7 +41,7 @@ namespace TorreClou.Application.Services
             if (!email.Equals(adminEmail, StringComparison.OrdinalIgnoreCase) || password != adminPassword)
             {
                 await Task.Delay(100); // Prevent timing attacks
-                return Result<AuthResponseDto>.Failure("INVALID_CREDENTIALS", "Invalid email or password");
+                return Result<AuthResponseDto>.Failure(ErrorCode.InvalidCredentials, "Invalid email or password");
             }
 
             // Get or create user in database
