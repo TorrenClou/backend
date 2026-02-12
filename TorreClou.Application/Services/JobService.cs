@@ -25,7 +25,7 @@ namespace TorreClou.Application.Services
     {
         private const string JobStreamKey = "jobs:stream";
 
-        public async Task<Result<JobCreationResult>> CreateAndDispatchJobAsync(int torrentFileId, int userId, string[] selectedFiles, int? storageProfileId = null)
+        public async Task<Result<JobCreationResult>> CreateAndDispatchJobAsync(int torrentFileId, int userId, string[]? selectedFiles, int storageProfileId)
         {
             logger.LogInformation("Create and dispatch job requested | TorrentFileId: {TorrentFileId} | UserId: {UserId}", torrentFileId, userId);
             // THATS NOT CORRECT, THE SERVICE HAS TO KNOW NOTHING ABOUT TORRENT, IT SHOULD BE FILE, THE FILE CAN BE TORRENT OR DIRECT URL, THE SERVICE SHOULD NOT CARE, IT JUST NEEDS A FILE WITH PATHS TO DOWNLOAD, THE JOB TYPE HANDLER SHOULD KNOW HOW TO HANDLE THE FILE BASED ON ITS TYPE
@@ -40,31 +40,16 @@ namespace TorreClou.Application.Services
                 return Result<JobCreationResult>.Failure(existingJobCheck.Error);
 
             // 3. Validate storage profile
-            UserStorageProfile? defaultStorageProfile;
-            if (storageProfileId.HasValue)
-            {
-                defaultStorageProfile = await unitOfWork.Repository<UserStorageProfile>().GetByIdAsync(storageProfileId.Value);
-                if (defaultStorageProfile == null || defaultStorageProfile.UserId != userId || !defaultStorageProfile.IsActive)
-                    return Result<JobCreationResult>.Failure(ErrorCode.InvalidStorageProfile, "Invalid or inactive storage profile.");
-            }
-            else
-            {
-                var defaultStorageProfileSpec = new BaseSpecification<UserStorageProfile>(sp => sp.UserId == userId && sp.IsDefault && sp.IsActive);
-                defaultStorageProfile = await unitOfWork.Repository<UserStorageProfile>().GetEntityWithSpec(defaultStorageProfileSpec);
-                
-                var profileValidation = ValidateStorageProfileForJob(defaultStorageProfile, userId);
-                if (profileValidation.IsFailure)
-                    return Result<JobCreationResult>.Failure(profileValidation.Error);
-
-                defaultStorageProfile = profileValidation.Value;
-            }
+            var storageProfile = await unitOfWork.Repository<UserStorageProfile>().GetByIdAsync(storageProfileId);
+            if (storageProfile == null || storageProfile.UserId != userId || !storageProfile.IsActive)
+                return Result<JobCreationResult>.Failure(ErrorCode.InvalidStorageProfile, "Invalid or inactive storage profile.");
 
             // 4. Create UserJob
             var defaultJobType = jobHandlerFactory.GetAllJobTypeHandlers().FirstOrDefault()?.JobType ?? JobType.Torrent;
             var job = new UserJob
             {
                 UserId = userId,
-                StorageProfileId = defaultStorageProfile.Id,
+                StorageProfileId = storageProfile.Id,
                 Status = JobStatus.QUEUED,
                 Type = defaultJobType,
                 RequestFileId = torrentFileId,
@@ -75,12 +60,12 @@ namespace TorreClou.Application.Services
             await unitOfWork.Complete();
 
             logger.LogInformation("Job created | JobId: {JobId} | StorageProfileId: {StorageProfileId} | RequestFileId: {RequestFileId}", 
-                job.Id, defaultStorageProfile.Id, torrentFileId);
+                job.Id, storageProfile.Id, torrentFileId);
 
             // 5. Record initial status in timeline
             await jobStatusService.RecordInitialJobStatusAsync(job, new
             {
-                storageProfileId = defaultStorageProfile.Id,
+                storageProfileId = storageProfile.Id,
                 requestFileId = torrentFileId,
                 selectedFilesCount = job.SelectedFilePaths?.Length ?? 0
             });
@@ -100,7 +85,7 @@ namespace TorreClou.Application.Services
             return Result.Success(new JobCreationResult
             {
                 JobId = job.Id,
-                StorageProfileId = defaultStorageProfile.Id,
+                StorageProfileId = storageProfile.Id,
             });
         }
         public async Task<Result<PaginatedResult<JobDto>>> GetUserJobsAsync(int userId, int pageNumber, int pageSize, JobStatus? status = null)
@@ -481,17 +466,6 @@ namespace TorreClou.Application.Services
 
 
 
-
-        private Result<UserStorageProfile> ValidateStorageProfileForJob(UserStorageProfile? profile, int userId)
-        {
-            if (profile == null)
-            {
-                logger.LogWarning("No active storage profile found for job creation | UserId: {UserId}", userId);
-                return Result<UserStorageProfile>.Failure(ErrorCode.NoStorage, "You don't have any stored or active Storage Destination");
-            }
-
-            return Result.Success(profile);
-        }
 
         private async Task<Result<UserJob?>> CheckExistingActiveJobAsync(int userId, int requestFileId)
         {

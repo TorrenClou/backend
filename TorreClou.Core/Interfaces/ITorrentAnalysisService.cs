@@ -5,7 +5,7 @@ namespace TorreClou.Core.Interfaces
 {
     public interface ITorrentAnalysisService
     {
-        Task<Result<QuoteResponseDto>> AnalyzeTorrentAsync(
+        Task<Result<TorrentAnalysisResponseDto>> AnalyzeTorrentAsync(
             AnalyzeTorrentRequestDto request,
             int userId,
             Stream torrentFile);
