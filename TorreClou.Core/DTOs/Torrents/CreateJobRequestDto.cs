@@ -4,6 +4,6 @@ namespace TorreClou.Core.DTOs.Torrents
     {
         public int TorrentFileId { get; init; }
         public string[]? SelectedFilePaths { get; init; }
-        public int? StorageProfileId { get; init; }
+        public int StorageProfileId { get; init; }
     }
 }

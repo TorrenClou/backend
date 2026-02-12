@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using TorreClou.Core.DTOs.Torrents;
 using TorreClou.Core.Interfaces;
@@ -12,6 +13,8 @@ namespace TorreClou.API.Controllers
     ) : BaseApiController
     {
         [HttpPost("analyze")]
+        [ProducesResponseType(typeof(TorrentAnalysisResponseDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> AnalyzeTorrent([FromForm] AnalyzeTorrentRequestDto request)
         {
             using var stream = request.TorrentFile.OpenReadStream();
