@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.DTOs.Torrents;
 using TorreClou.Core.Interfaces;
 
@@ -13,13 +12,9 @@ namespace TorreClou.API.Controllers.Torrents
         IJobService jobService,
         ILogger<TorrentFileController> logger) : BaseApiController
     {
-        /// <summary>
-        /// Create a job directly without payment.
-        /// </summary>
+      
         [HttpPost("create-job")]
-        [ProducesResponseType(typeof(JobCreationResult), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
+ 
         public async Task<IActionResult> CreateJobAsync([FromBody] CreateJobRequestDto request)
         {
             var userId = GetCurrentUserId();
