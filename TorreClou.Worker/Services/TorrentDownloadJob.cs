@@ -21,6 +21,7 @@ namespace TorreClou.Worker.Services
         IRedisStreamService redisStreamService,
         ITransferSpeedMetrics speedMetrics,
         IJobStatusService jobStatusService,
+        IJobCancellationSignal jobCancellationSignal,
         IConfiguration configuration) : UserJobBase<TorrentDownloadJob>(unitOfWork, logger, jobStatusService), ITorrentDownloadJob
     {
         // Default download path
@@ -130,6 +131,8 @@ namespace TorreClou.Worker.Services
             {
                 await SaveEngineStateAsync(_engine, "cancellation");
             }
+            // Clear any leftover Redis signal (handles the server-shutdown / Hangfire CT path)
+            await jobCancellationSignal.ClearAsync(job.Id);
         }
 
         protected override async Task OnJobErrorAsync(UserJob job, Exception exception)
@@ -362,6 +365,18 @@ namespace TorreClou.Worker.Services
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                // Check the distributed Redis cancellation signal set by the API when the user
+                // cancels the job. BackgroundJob.Delete() does NOT cancel the CancellationToken
+                // of an already-running Hangfire job, so this is the only reliable way to stop
+                // a live download across separate Docker containers.
+                if (await jobCancellationSignal.IsCancelledAsync(job.Id))
+                {
+                    Logger.LogInformation("{LogPrefix} Cancellation signal received, stopping download | JobId: {JobId}", LogPrefix, job.Id);
+                    await jobCancellationSignal.ClearAsync(job.Id);
+                    await SaveEngineStateAsync(engine, "cancellation");
+                    return false;
+                }
+
                 var now = DateTime.UtcNow;
 
                 // Update progress metrics

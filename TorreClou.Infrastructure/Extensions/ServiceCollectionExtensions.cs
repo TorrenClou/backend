@@ -5,6 +5,7 @@ using TorreClou.Infrastructure.Services;
 using TorreClou.Application.Services.Google_Drive;
 using TorreClou.Infrastructure.Services.Drive;
 using TorreClou.Infrastructure.Services.Handlers;
+using TorreClou.Infrastructure.Services.Redis;
 
 namespace TorreClou.Infrastructure.Extensions
 {
@@ -51,6 +52,9 @@ namespace TorreClou.Infrastructure.Extensions
             
             // Job Handler Factory
             services.AddScoped<IJobHandlerFactory, JobHandlerFactory>();
+
+            // Distributed cancellation signal (Redis-backed, singleton — stateless Redis wrapper)
+            services.AddSingleton<IJobCancellationSignal, RedisJobCancellationSignal>();
 
             return services;
         }

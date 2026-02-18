@@ -19,6 +19,7 @@ namespace TorreClou.Application.Services
         IJobStatusService jobStatusService,
         IServiceScopeFactory serviceScopeFactory,
         IJobHandlerFactory jobHandlerFactory,
+        IJobCancellationSignal jobCancellationSignal,
         ILogger<JobService> logger) : IJobService
     {
         private const string JobStreamKey = "jobs:stream";
@@ -276,6 +277,12 @@ namespace TorreClou.Application.Services
             ValidateJobExistsAndAuthorized(job, userId, userRole, "cancel");
 
             ValidateJobForCancel(job!, userId, userRole);
+
+            // Signal the worker process via Redis BEFORE touching Hangfire so the running
+            // worker's monitoring loop detects cancellation as quickly as possible.
+            // (BackgroundJob.Delete only prevents a queued job from starting; it does NOT
+            // cancel the CancellationToken of an already-executing Hangfire job.)
+            await jobCancellationSignal.SignalAsync(job!.Id);
 
             using var scope = serviceScopeFactory.CreateScope();
             var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
