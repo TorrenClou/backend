@@ -11,18 +11,12 @@ namespace TorreClou.S3.Worker.Services
     /// S3 resumable upload service with user-specific credentials (NO FALLBACK)
     /// Accepts pre-configured AmazonS3 client with user credentials
     /// </summary>
-    public class S3ResumableUploadService : IS3ResumableUploadService
+    public class S3ResumableUploadService(
+        IAmazonS3 s3Client,
+        ILogger<S3ResumableUploadService> logger) : IS3ResumableUploadService
     {
-        private readonly IAmazonS3 _s3Client;
-        private readonly ILogger<S3ResumableUploadService> _logger;
-
-        public S3ResumableUploadService(
-            IAmazonS3 s3Client,
-            ILogger<S3ResumableUploadService> logger)
-        {
-            _s3Client = s3Client ?? throw new ArgumentNullException(nameof(s3Client));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        }
+        private readonly IAmazonS3 _s3Client = s3Client ?? throw new ArgumentNullException(nameof(s3Client));
+        private readonly ILogger<S3ResumableUploadService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         public async Task<string> InitiateUploadAsync(string bucketName, string s3Key, long fileSize, string? contentType = null, CancellationToken cancellationToken = default)
         {

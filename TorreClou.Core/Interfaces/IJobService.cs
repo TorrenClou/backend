@@ -17,5 +17,10 @@ namespace TorreClou.Core.Interfaces
         Task RetryJobAsync(int jobId, int userId, UserRole? userRole = null);
 
         Task CancelJobAsync(int jobId, int userId, UserRole? userRole = null);
+
+        // Worker-facing job state updates
+        Task UpdateJobStartedAtAsync(UserJob job);
+        Task UpdateJobProgressAsync(UserJob job, long bytesUploaded);
+        Task UpdateHeartbeatAsync(int jobId);
     }
 }

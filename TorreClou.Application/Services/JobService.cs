@@ -502,5 +502,33 @@ namespace TorreClou.Application.Services
                     return true;
             return false;
         }
+
+        // --- Worker-facing job state updates ---
+
+        public async Task UpdateJobStartedAtAsync(UserJob job)
+        {
+            if (job.StartedAt == null)
+                job.StartedAt = DateTime.UtcNow;
+            await unitOfWork.Complete();
+        }
+
+        public async Task UpdateJobProgressAsync(UserJob job, long bytesUploaded)
+        {
+            job.BytesDownloaded = bytesUploaded;
+            job.LastHeartbeat = DateTime.UtcNow;
+            await unitOfWork.Complete();
+        }
+
+        public async Task UpdateHeartbeatAsync(int jobId)
+        {
+            var spec = new BaseSpecification<UserJob>(j => j.Id == jobId);
+            var job = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(spec);
+
+            if (job == null || job.Status != JobStatus.UPLOADING)
+                return;
+
+            job.LastHeartbeat = DateTime.UtcNow;
+            await unitOfWork.Complete();
+        }
     }
 }
