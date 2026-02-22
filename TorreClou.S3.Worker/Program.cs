@@ -1,10 +1,13 @@
 using Serilog;
+using TorreClou.Application.Services;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Interfaces;
 using TorreClou.Core.Interfaces.Hangfire;
 using TorreClou.Core.Options;
 using TorreClou.Infrastructure.Extensions;
 using TorreClou.Infrastructure.Services;
+using TorreClou.Infrastructure.Services.Handlers;
+using TorreClou.Infrastructure.Services.Redis;
 using TorreClou.S3.Worker;
 using TorreClou.S3.Worker.Interfaces;
 using TorreClou.S3.Worker.Services;
@@ -36,6 +39,11 @@ try
     // Hangfire with S3 queue
     builder.Services.AddSharedHangfireBase(builder.Configuration);
     builder.Services.AddSharedHangfireServer(builder.Configuration, queues: ["s3", "default"]);
+
+    // Job Service dependencies (IJobService is used by S3UploadJob for heartbeat/progress updates)
+    builder.Services.AddSingleton<IJobCancellationSignal, RedisJobCancellationSignal>();
+    builder.Services.AddScoped<IJobHandlerFactory, JobHandlerFactory>();
+    builder.Services.AddScoped<IJobService, JobService>();
 
     // S3-Specific Services (NO BackblazeSettings - all credentials from UserStorageProfile)
     builder.Services.AddScoped<IS3JobService, S3JobService>();

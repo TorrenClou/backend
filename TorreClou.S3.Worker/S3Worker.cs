@@ -1,12 +1,12 @@
+using Hangfire;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
-using TorreClou.Infrastructure.Workers;
-using Hangfire;
 using TorreClou.Core.Interfaces.Hangfire;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
+using TorreClou.Infrastructure.Workers;
 
 namespace TorreClou.S3.Worker
 {
@@ -15,7 +15,7 @@ namespace TorreClou.S3.Worker
         IConnectionMultiplexer redis,
         IServiceScopeFactory scopeFactory) : BaseStreamWorker(logger, redis, scopeFactory)
     {
-        protected override string StreamKey => "uploads:awss3:stream";
+        protected override string StreamKey => "uploads:s3:stream";
         protected override string ConsumerGroupName => "s3-workers";
 
         protected override async Task<bool> ProcessJobAsync(StreamEntry entry, IServiceProvider services, CancellationToken token)
