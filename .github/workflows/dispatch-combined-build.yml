@@ -13,7 +13,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.DEPLOY_PAT }}
-          repository: gitnasr/TorrenCloud-deploy
+          repository: TorrenClou/TorrenCloud-deploy
           event-type: build-combined
           client-payload: |
             {
