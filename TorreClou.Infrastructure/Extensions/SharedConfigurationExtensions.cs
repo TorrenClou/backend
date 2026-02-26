@@ -173,7 +173,7 @@ namespace TorreClou.Infrastructure.Extensions
         /// </summary>
         public static IServiceCollection AddSharedRedis(this IServiceCollection services, IConfiguration config)
         {
-            var redisConn = config["Redis:ConnectionString"] ?? "localhost:6379";
+            var redisConn = config["Redis:ConnectionString"] ?? "localhost:47400";
 
             // Parse connection string and configure timeouts for cloud Redis
             var configurationOptions = ConfigurationOptions.Parse(redisConn);

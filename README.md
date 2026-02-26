@@ -74,7 +74,7 @@ docker-compose up -d postgres redis
 dotnet run --project TorreClou.API
 ```
 
-The API starts at `http://localhost:5000`. Migrations are applied automatically on startup when `APPLY_MIGRATIONS=true`.
+The API starts at `http://localhost:47200`. Migrations are applied automatically on startup when `APPLY_MIGRATIONS=true`.
 
 ### 4. Run workers (optional)
 
@@ -116,7 +116,7 @@ docker-compose up -d
 | `JWT_AUDIENCE` | No | `TorrenClou_Client` | JWT audience |
 | `ADMIN_EMAIL` | No | `admin@example.com` | Admin login email |
 | `ADMIN_PASSWORD` | **Yes** | - | Admin login password |
-| `FRONTEND_URL` | No | `http://localhost:3000` | Frontend URL (CORS) |
+| `FRONTEND_URL` | No | `http://localhost:47100` | Frontend URL (CORS) |
 | `APPLY_MIGRATIONS` | No | `true` | Auto-apply EF Core migrations |
 | `HANGFIRE_WORKER_COUNT` | No | `10` | Worker thread count |
 
@@ -126,9 +126,9 @@ See [`.env.example`](.env) for the complete list including observability setting
 
 The docker-compose includes a full observability stack:
 
-- **Prometheus** (`:9090`) — Metrics collection
-- **Loki** (`:3100`) — Log aggregation
-- **Grafana** (`:3001`) — Dashboards and visualization
+- **Prometheus** (`:47600`) — Metrics collection
+- **Loki** (`:47700`) — Log aggregation
+- **Grafana** (`:47500`) — Dashboards and visualization
 
 ## Project Structure Details
 
