@@ -11,7 +11,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-torrenclo_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-47300}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
     image: redis:7-alpine
     container_name: torrenclo_redis
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-47400}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -43,7 +43,7 @@ services:
       dockerfile: TorreClou.API/Dockerfile
     container_name: torrenclo_api
     ports:
-      - "${API_PORT:-5000}:8080"
+      - "${API_PORT:-47200}:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
@@ -55,7 +55,7 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gitnasr.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-P@ssword123!}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:47100}
       - APPLY_MIGRATIONS=${APPLY_MIGRATIONS:-true}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
@@ -160,7 +160,7 @@ services:
     image: grafana/loki:2.9.3
     container_name: torrenclo_loki
     ports:
-      - "3100:3100"
+      - "47700:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
       - loki_data:/loki
@@ -171,7 +171,7 @@ services:
     image: prom/prometheus:v2.48.1
     container_name: torrenclo_prometheus
     ports:
-      - "9090:9090"
+      - "47600:9090"
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -185,12 +185,12 @@ services:
     image: grafana/grafana:10.2.3
     container_name: torrenclo_grafana
     ports:
-      - "3001:3000"
+      - "47500:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_SERVER_ROOT_URL=http://localhost:47500
     volumes:
       - grafana_data:/var/lib/grafana
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro

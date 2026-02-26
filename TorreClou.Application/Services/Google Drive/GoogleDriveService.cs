@@ -30,7 +30,7 @@ namespace TorreClou.Application.Services.Google_Drive
 
         public async Task<string> GetGoogleCallback(string code, string state)
         {
-            var frontendUrl = (configuration["FRONTEND_URL"] ?? "http://localhost:3000").TrimEnd('/');
+            var frontendUrl = (configuration["FRONTEND_URL"] ?? "http://localhost:47100").TrimEnd('/');
             var redirectBase = $"{frontendUrl}/storage";
 
             if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
