@@ -79,11 +79,16 @@ namespace TorreClou.Infrastructure.Services.Redis
         {
             try
             {
-                var value = await Database.StringGetDeleteAsync(key);
+                var db = Database;
+                var value = await db.StringGetAsync(key);
+                if (value.HasValue)
+                {
+                    await db.KeyDeleteAsync(key);
+                }
                 var result = value.HasValue ? value.ToString() : null;
-                
-                _logger.LogDebug("Redis GETDEL | Key: {Key} | Found: {Found}", key, result != null);
-                
+
+                _logger.LogDebug("Redis GET+DEL | Key: {Key} | Found: {Found}", key, result != null);
+
                 return result;
             }
             catch (Exception ex)
