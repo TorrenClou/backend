@@ -1,4 +1,5 @@
 using Hangfire;
+using Microsoft.Extensions.Logging;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
@@ -7,7 +8,7 @@ using TorreClou.Core.Specifications;
 
 namespace TorreClou.Worker.Services
 {
-    public class TorrentRecoveryStrategy(IServiceScopeFactory serviceScopeFactory) : IJobRecoveryStrategy
+    public class TorrentRecoveryStrategy(IServiceScopeFactory serviceScopeFactory, IRedisLockService redisLockService, ILogger<TorrentRecoveryStrategy> logger) : IJobRecoveryStrategy
     {
         public JobType SupportedJobType => JobType.Torrent;
 
@@ -52,6 +53,24 @@ namespace TorreClou.Worker.Services
                 if (provider == null)
                 {
                     throw new InvalidOperationException($"Job {userJob.Id} has no storage profile configured for upload recovery");
+                }
+
+                // Delete stale Redis lock from the previous (dead) instance
+                // so the re-enqueued job can acquire a fresh lock
+                var lockKey = provider switch
+                {
+                    StorageProviderType.GoogleDrive => $"gdrive:lock:{userJob.Id}",
+                    StorageProviderType.S3 => $"s3:lock:{userJob.Id}",
+                    _ => null
+                };
+
+                if (lockKey != null)
+                {
+                    var deleted = await redisLockService.DeleteLockAsync(lockKey);
+                    logger.LogInformation(
+                        "Recovery: {Action} stale Redis lock | JobId: {JobId} | LockKey: {LockKey}",
+                        deleted ? "Deleted" : "No lock found to delete",
+                        userJob.Id, lockKey);
                 }
 
                 reloadedJob.CurrentState = $"Recovering upload to {provider}...";
