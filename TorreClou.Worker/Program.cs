@@ -36,10 +36,6 @@ try
 
     // Hangfire
     builder.Services.AddSharedHangfireBase(builder.Configuration);
-    GlobalJobFilters.Filters.Add(new JobStateSyncFilter(
-        builder.Services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
-        new LoggerFactory().CreateLogger<JobStateSyncFilter>()
-    ));
     builder.Services.AddSharedHangfireServer(builder.Configuration, queues: ["torrents", "default"]);
 
     // Worker Services
@@ -62,13 +58,21 @@ try
     });
 
     var host = builder.Build();
-    
+
+    // Registered against the real host container. Building a scratch provider here would
+    // spin up a second DI graph and a duplicate, never-disposed Redis multiplexer.
+    GlobalJobFilters.Filters.Add(new JobStateSyncFilter(
+        host.Services.GetRequiredService<IServiceScopeFactory>(),
+        host.Services.GetRequiredService<ILoggerFactory>().CreateLogger<JobStateSyncFilter>()
+    ));
+
     Log.Information("{ServiceName} started successfully", ServiceName);
     host.Run();
 }
 catch (Exception ex)
 {
     Log.Fatal(ex, "Worker terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {

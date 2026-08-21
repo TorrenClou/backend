@@ -30,6 +30,9 @@ RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
+# curl is needed by the container healthcheck; the aspnet image ships neither curl nor wget
+RUN apt-get update     && apt-get install -y --no-install-recommends curl     && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
