@@ -45,6 +45,7 @@ try
     builder.Services.AddScoped<IUploadProgressContext, UploadProgressContext>();
     builder.Services.AddScoped<ITransferSpeedMetrics, TransferSpeedMetrics>();
     builder.Services.AddScoped<IJobStatusService, TorreClou.Infrastructure.Services.JobStatusService>();
+    builder.Services.AddScoped<IDownloadCleanupService, DownloadCleanupService>();
 
     // Hosted Services
     builder.Services.Configure<JobHealthMonitorOptions>(opts => opts.CheckInterval = TimeSpan.FromMinutes(2));

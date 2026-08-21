@@ -118,6 +118,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
+      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
       - Observability__LokiApiKey=${OBSERVABILITY_LOKI_API_KEY:-}
@@ -147,6 +148,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
+      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
       - Observability__LokiApiKey=${OBSERVABILITY_LOKI_API_KEY:-}

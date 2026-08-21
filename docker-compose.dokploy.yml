@@ -119,6 +119,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD}
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
+      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - Observability__EnablePrometheus=${OBSERVABILITY_ENABLE_PROMETHEUS:-true}
       - Observability__EnableTracing=${OBSERVABILITY_ENABLE_TRACING:-true}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-}
@@ -143,6 +144,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD}
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
+      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - Observability__EnablePrometheus=${OBSERVABILITY_ENABLE_PROMETHEUS:-true}
       - Observability__EnableTracing=${OBSERVABILITY_ENABLE_TRACING:-true}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-}
