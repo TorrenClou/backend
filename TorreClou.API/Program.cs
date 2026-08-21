@@ -37,6 +37,7 @@ try
     builder.Services.AddApiServices(builder.Configuration);
     builder.Services.AddIdentityServices(builder.Configuration);
     builder.Services.AddHttpClient();
+    builder.Services.AddHealthChecks();
 
     // CORS
     builder.Services.AddCors(options =>
@@ -111,8 +112,12 @@ try
         app.MapOpenApi();
         app.MapScalarApiReference();
     }
-    else
+    else if (app.Configuration.GetValue<bool>("Api:UseHttpsRedirection"))
     {
+        // Off by default: in every deployment of this stack the container listens on
+        // plain HTTP:8080 and TLS is terminated upstream. Enabling it without an HTTPS
+        // port makes ASP.NET log "Failed to determine the https port for redirect" on
+        // every request, including each Prometheus scrape.
         app.UseHttpsRedirection();
         app.UseHsts();
     }
@@ -127,6 +132,7 @@ try
     });
 
     app.UseOpenTelemetryPrometheusScrapingEndpoint();
+    app.MapHealthChecks("/health").AllowAnonymous();
     app.MapControllers();
 
     Log.Information("{ServiceName} started successfully", ServiceName);
@@ -135,6 +141,7 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {

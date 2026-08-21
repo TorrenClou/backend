@@ -65,6 +65,7 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "Google Drive Worker terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {

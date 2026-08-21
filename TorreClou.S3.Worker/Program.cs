@@ -77,6 +77,7 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "S3 Worker terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {
