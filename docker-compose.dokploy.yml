@@ -50,6 +50,10 @@ services:
       dockerfile: TorreClou.API/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      # Listen on 3000 rather than the image default of 8080: Dokploy's generated
+      # domains default to port 3000, and that port number is not settable through
+      # the API. The local docker-compose.yml is unaffected and still uses 8080.
+      - ASPNETCORE_URLS=http://+:3000
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD}
       - Redis__ConnectionString=redis:6379
       - Jwt__Key=${JWT_SECRET:?JWT_SECRET is required}
@@ -74,7 +78,7 @@ services:
     volumes:
       - downloads:/app/downloads
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/health" ]
       interval: 10s
       timeout: 5s
       retries: 10
