@@ -23,7 +23,8 @@ namespace TorreClou.S3.Worker.Services
         IJobStatusService jobStatusService,
         IJobService jobService,
         IServiceScopeFactory serviceScopeFactory,
-        IRedisLockService redisLockService)
+        IRedisLockService redisLockService,
+        IDownloadCleanupService downloadCleanupService)
         : UserJobBase<S3UploadJob>(unitOfWork, logger, jobStatusService), IS3UploadJob
     {
         private readonly IS3JobService _s3JobService = s3JobService;
@@ -31,6 +32,7 @@ namespace TorreClou.S3.Worker.Services
         private readonly IJobService _jobService = jobService;
         private readonly IServiceScopeFactory _serviceScopeFactory = serviceScopeFactory;
         private readonly IRedisLockService _redisLockService = redisLockService;
+        private readonly IDownloadCleanupService _downloadCleanupService = downloadCleanupService;
         private const long PartSize = 10 * 1024 * 1024; // 10MB
         private const int ProgressUpdateIntervalSeconds = 10;
 
@@ -194,6 +196,11 @@ namespace TorreClou.S3.Worker.Services
                     metadata: new { totalBytes = overallBytesUploaded, filesUploaded, completedAt = job.CompletedAt, durationSeconds = duration });
 
                 Logger.LogInformation("{LogPrefix} Upload Complete | JobId: {JobId}", LogPrefix, job.Id);
+
+                // Every file is now in S3, so the local copy is dead weight on the
+                // shared downloads volume. Runs only after COMPLETED so a failed or
+                // retrying job keeps the files it still needs.
+                await _downloadCleanupService.CleanupAfterUploadAsync(job, CancellationToken.None);
 
                 // Stop heartbeat now (completed)
                 heartbeatCts.Cancel();

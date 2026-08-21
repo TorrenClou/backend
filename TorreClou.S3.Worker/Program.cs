@@ -52,6 +52,7 @@ try
 
     // Shared Infrastructure Services
     builder.Services.AddScoped<IJobStatusService, TorreClou.Infrastructure.Services.JobStatusService>();
+    builder.Services.AddScoped<IDownloadCleanupService, DownloadCleanupService>();
     builder.Services.AddScoped<ITransferSpeedMetrics, TransferSpeedMetrics>();
 
     // Hosted Services

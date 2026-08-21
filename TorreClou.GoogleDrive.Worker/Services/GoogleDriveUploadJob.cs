@@ -17,7 +17,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
         IUploadProgressContext progressContext,
         ITransferSpeedMetrics speedMetrics,
         IRedisLockService redisLockService,
-        IJobStatusService jobStatusService) : UserJobBase<GoogleDriveUploadJob>(unitOfWork, logger, jobStatusService), IGoogleDriveUploadJob
+        IJobStatusService jobStatusService,
+        IDownloadCleanupService downloadCleanupService) : UserJobBase<GoogleDriveUploadJob>(unitOfWork, logger, jobStatusService), IGoogleDriveUploadJob
     {
 
         protected override string LogPrefix => "[GOOGLE_DRIVE:UPLOAD]";
@@ -221,6 +222,11 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 metadata: new { totalBytes, filesCount = fileCount, durationSeconds = duration, completedAt = job.CompletedAt });
 
             Logger.LogInformation("{LogPrefix} Completed successfully | JobId: {JobId}", LogPrefix, job.Id);
+
+            // Every file is now in Drive, so the local copy is dead weight on the
+            // shared downloads volume. Runs only after COMPLETED so a failed or
+            // retrying job keeps the files it still needs.
+            await downloadCleanupService.CleanupAfterUploadAsync(job, CancellationToken.None);
         }
 
         // --- Failure Hook ---
