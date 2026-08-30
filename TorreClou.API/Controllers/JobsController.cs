@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using TorreClou.Core.DTOs.Jobs;
 using TorreClou.Core.Enums;
 using TorreClou.Core.Interfaces;
 
@@ -43,11 +44,28 @@ namespace TorreClou.API.Controllers
             return Ok(await jobService.GetUserJobStatisticsAsync(UserId));
         }
 
+        /// <summary>
+        /// Retries a job. An optional body redirects the retry to a different drive.
+        /// </summary>
         [HttpPost("{id}/retry")]
-        public async Task<IActionResult> RetryJob(int id)
+        public async Task<IActionResult> RetryJob(int id, [FromBody] RetryJobRequestDto? request = null)
         {
-            await jobService.RetryJobAsync(id, UserId);
+            await jobService.RetryJobAsync(id, UserId, targetStorageProfileId: request?.StorageProfileId);
             return Ok();
+        }
+
+        /// <summary>
+        /// Points a job at a different storage profile before its upload runs. If the job
+        /// is already waiting to upload, the queued upload is re-dispatched to the new
+        /// destination.
+        /// </summary>
+        [HttpPatch("{id}/storage-profile")]
+        public async Task<IActionResult> ChangeStorageProfile(int id, [FromBody] ChangeJobStorageProfileRequestDto request)
+        {
+            var job = await jobService.ChangeJobStorageProfileAsync(
+                id, UserId, request.StorageProfileId, request.AllowFailover);
+
+            return Ok(job);
         }
 
         [HttpPost("{id}/cancel")]

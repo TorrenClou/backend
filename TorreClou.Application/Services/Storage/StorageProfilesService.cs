@@ -32,6 +32,13 @@ namespace TorreClou.Application.Services.Storage
                     IsActive = p.IsActive,
                     NeedsReauth = p.NeedsReauth,
                     IsConfigured = IsProfileConfigured(p),
+                    HealthStatus = p.HealthStatus,
+                    IsUsable = IsUsable(p),
+                    HealthMessage = p.LastHealthError,
+                    LastHealthCheckAt = p.LastHealthCheckAt,
+                    QuotaTotalBytes = p.QuotaTotalBytes,
+                    QuotaUsedBytes = p.QuotaUsedBytes,
+                    QuotaFreeBytes = p.QuotaFreeBytes,
                     CreatedAt = p.CreatedAt
                 }).ToList();
         }
@@ -56,6 +63,13 @@ namespace TorreClou.Application.Services.Storage
                 IsActive = profile.IsActive,
                 NeedsReauth = profile.NeedsReauth,
                 IsConfigured = IsProfileConfigured(profile),
+                HealthStatus = profile.HealthStatus,
+                IsUsable = IsUsable(profile),
+                HealthMessage = profile.LastHealthError,
+                LastHealthCheckAt = profile.LastHealthCheckAt,
+                QuotaTotalBytes = profile.QuotaTotalBytes,
+                QuotaUsedBytes = profile.QuotaUsedBytes,
+                QuotaFreeBytes = profile.QuotaFreeBytes,
                 CreatedAt = profile.CreatedAt,
                 UpdatedAt = profile.UpdatedAt
             };
@@ -142,6 +156,15 @@ namespace TorreClou.Application.Services.Storage
             await unitOfWork.Complete();
             return userStorageProfile;
         }
+
+        /// <summary>
+        /// Whether the last known health state allows an upload. This reads persisted
+        /// state only — call IStorageProfileHealthService for a live probe.
+        /// </summary>
+        private static bool IsUsable(UserStorageProfile profile) =>
+            profile.IsActive &&
+            !profile.NeedsReauth &&
+            profile.HealthStatus != StorageHealthStatus.Unhealthy;
 
         private static bool IsProfileConfigured(UserStorageProfile profile)
         {

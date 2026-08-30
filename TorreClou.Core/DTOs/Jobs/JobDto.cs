@@ -8,6 +8,19 @@ namespace TorreClou.Core.DTOs.Jobs
         public int Id { get; set; }
         public int StorageProfileId { get; set; }
         public string? StorageProfileName { get; set; }
+
+        /// <summary>Profile the job was created with, when it has since been rerouted.</summary>
+        public int? OriginalStorageProfileId { get; set; }
+        public string? OriginalStorageProfileName { get; set; }
+
+        /// <summary>False when the user pinned this job to its current destination.</summary>
+        public bool AllowStorageFailover { get; set; } = true;
+
+        /// <summary>How many times this job has been moved to another profile automatically.</summary>
+        public int FailoverAttempts { get; set; }
+
+        /// <summary>Why the destination last changed (None when it never has).</summary>
+        public string LastRouteReason { get; set; } = nameof(StorageRouteReason.None);
         public JobStatus Status { get; set; }
         public string Type { get; set; } = string.Empty;
         public int RequestFileId { get; set; }
@@ -35,6 +48,15 @@ namespace TorreClou.Core.DTOs.Jobs
                                Status == JobStatus.UPLOAD_RETRY;
         public bool CanRetry => Status.IsFailed() && Status != JobStatus.CANCELLED;
         public bool CanCancel => Status.IsCancellable();
+
+        /// <summary>True when the destination can still be changed without a retry.</summary>
+        public bool CanChangeStorageProfile =>
+            Status != JobStatus.COMPLETED &&
+            Status != JobStatus.CANCELLED &&
+            Status != JobStatus.UPLOADING;
+
+        /// <summary>True when this job is not running on the profile it was created with.</summary>
+        public bool WasRerouted => OriginalStorageProfileId.HasValue && OriginalStorageProfileId != StorageProfileId;
 
         /// <summary>
         /// Status change timeline for this job.

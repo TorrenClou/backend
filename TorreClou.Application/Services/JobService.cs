@@ -20,6 +20,8 @@ namespace TorreClou.Application.Services
         IServiceScopeFactory serviceScopeFactory,
         IJobHandlerFactory jobHandlerFactory,
         IJobCancellationSignal jobCancellationSignal,
+        IUploadRoutingService uploadRoutingService,
+        IStorageProfileHealthService storageHealthService,
         ILogger<JobService> logger) : IJobService
     {
         private const string JobStreamKey = "jobs:stream";
@@ -37,6 +39,8 @@ namespace TorreClou.Application.Services
             var storageProfile = await unitOfWork.Repository<UserStorageProfile>().GetByIdAsync(storageProfileId);
             if (storageProfile == null || storageProfile.UserId != userId || !storageProfile.IsActive)
                 throw new ValidationException("InvalidStorageProfile", "Invalid or inactive storage profile.");
+
+            await EnsureDestinationIsReachableAsync(storageProfile, userId);
 
             var defaultJobType = jobHandlerFactory.GetAllJobTypeHandlers().FirstOrDefault()?.JobType ?? JobType.Torrent;
             var job = new UserJob
@@ -95,6 +99,10 @@ namespace TorreClou.Application.Services
                 Id = job.Id,
                 StorageProfileId = job.StorageProfileId,
                 StorageProfileName = job.StorageProfile?.ProfileName,
+                OriginalStorageProfileId = job.OriginalStorageProfileId,
+                AllowStorageFailover = job.AllowStorageFailover,
+                FailoverAttempts = job.FailoverAttempts,
+                LastRouteReason = job.LastRouteReason.ToString(),
                 Status = job.Status,
                 Type = job.Type.ToString(),
                 RequestFileId = job.RequestFileId,
@@ -139,11 +147,20 @@ namespace TorreClou.Application.Services
 
             var timeline = await jobStatusService.GetJobTimelineAsync(jobId);
 
+            var originalProfileName = job.OriginalStorageProfileId.HasValue
+                ? (await unitOfWork.Repository<UserStorageProfile>().GetByIdAsync(job.OriginalStorageProfileId.Value))?.ProfileName
+                : null;
+
             return new JobDto
             {
                 Id = job.Id,
                 StorageProfileId = job.StorageProfileId,
                 StorageProfileName = job.StorageProfile?.ProfileName,
+                OriginalStorageProfileId = job.OriginalStorageProfileId,
+                OriginalStorageProfileName = originalProfileName,
+                AllowStorageFailover = job.AllowStorageFailover,
+                FailoverAttempts = job.FailoverAttempts,
+                LastRouteReason = job.LastRouteReason.ToString(),
                 Status = job.Status,
                 Type = job.Type.ToString(),
                 RequestFileId = job.RequestFileId,
@@ -205,9 +222,10 @@ namespace TorreClou.Application.Services
             return activeJobs;
         }
 
-        public async Task RetryJobAsync(int jobId, int userId, UserRole? userRole = null)
+        public async Task RetryJobAsync(int jobId, int userId, UserRole? userRole = null, int? targetStorageProfileId = null)
         {
-            logger.LogInformation("Retry job requested | JobId: {JobId} | UserId: {UserId} | Role: {Role}", jobId, userId, userRole);
+            logger.LogInformation("Retry job requested | JobId: {JobId} | UserId: {UserId} | Role: {Role} | TargetProfileId: {TargetProfileId}",
+                jobId, userId, userRole, targetStorageProfileId);
 
             var spec = new BaseSpecification<UserJob>(j => j.Id == jobId);
             spec.AddInclude(j => j.StorageProfile);
@@ -217,7 +235,24 @@ namespace TorreClou.Application.Services
             var job = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(spec);
             ValidateJobExistsAndAuthorized(job, userId, userRole, "retry");
 
-            ValidateJobForRetry(job!, userId, userRole);
+            // Status guards run first so a rejected retry never mutates the job.
+            ValidateJobStatusForRetry(job!, userId);
+
+            if (targetStorageProfileId.HasValue)
+            {
+                // Redirecting before the destination check is deliberate: a job that failed
+                // *because* its profile went inactive is exactly the one worth redirecting.
+                await uploadRoutingService.RouteToProfileAsync(
+                    job!, targetStorageProfileId.Value, userId, allowFailover: job!.AllowStorageFailover);
+            }
+            else
+            {
+                // Manual retry means "try again from scratch": let failover reconsider every
+                // profile, including ones that failed on an earlier attempt.
+                await uploadRoutingService.ClearAttemptHistoryAsync(job!.Id);
+            }
+
+            ValidateRetryDestination(job!, userId);
 
             using var scope = serviceScopeFactory.CreateScope();
             var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
@@ -264,6 +299,119 @@ namespace TorreClou.Application.Services
                 });
 
             logger.LogInformation("Job retry completed successfully | JobId: {JobId} | TargetStatus: {TargetStatus} | UserId: {UserId}", job.Id, targetStatus, userId);
+        }
+
+        public async Task<JobDto> ChangeJobStorageProfileAsync(
+            int jobId,
+            int userId,
+            int storageProfileId,
+            bool allowFailover = true,
+            UserRole? userRole = null)
+        {
+            logger.LogInformation(
+                "Change job storage profile requested | JobId: {JobId} | UserId: {UserId} | TargetProfileId: {TargetProfileId} | AllowFailover: {AllowFailover}",
+                jobId, userId, storageProfileId, allowFailover);
+
+            var spec = new BaseSpecification<UserJob>(j => j.Id == jobId);
+            spec.AddInclude(j => j.StorageProfile);
+            spec.AddInclude(j => j.RequestFile);
+
+            var job = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(spec);
+            ValidateJobExistsAndAuthorized(job, userId, userRole, "change storage profile");
+            ValidateJobForStorageChange(job!, userId);
+
+            var previousProviderType = job!.StorageProfile?.ProviderType;
+
+            var route = await uploadRoutingService.RouteToProfileAsync(job, storageProfileId, userId, allowFailover);
+
+            // A job already waiting to upload has a queued Hangfire job bound to the old
+            // destination. Replace it so the change takes effect without a manual retry.
+            if (route.Rerouted && IsUploadPhase(job.Status) && !string.IsNullOrEmpty(job.DownloadPath))
+            {
+                await RedispatchUploadAsync(job, previousProviderType);
+            }
+
+            return await GetJobByIdAsync(userId, jobId, userRole);
+        }
+
+        /// <summary>
+        /// Cancels the queued upload bound to the previous destination and enqueues a new
+        /// one through the handler for the job's current provider.
+        /// </summary>
+        private async Task RedispatchUploadAsync(UserJob job, StorageProviderType? previousProviderType)
+        {
+            using var scope = serviceScopeFactory.CreateScope();
+            var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
+            var monitoringApi = JobStorage.Current?.GetMonitoringApi();
+
+            await CancelExistingHangfireJobsAsync(job, backgroundJobClient, monitoringApi);
+
+            // Release the upload lock held under the old provider so a re-run is not blocked.
+            if (previousProviderType.HasValue)
+            {
+                var previousHandler = jobHandlerFactory.GetStorageProviderHandler(previousProviderType.Value);
+                if (previousHandler != null)
+                    await previousHandler.DeleteUploadLockAsync(job.Id);
+            }
+
+            var hangfireJobId = await RetryUploadPhaseAsync(job, backgroundJobClient);
+
+            job.HangfireJobId = hangfireJobId;
+            job.HangfireUploadJobId = null;
+            job.ErrorMessage = null;
+            job.NextRetryAt = null;
+            job.LastHeartbeat = DateTime.UtcNow;
+            job.CurrentState = $"Queued for upload to {job.StorageProfile?.ProfileName}";
+
+            await jobStatusService.TransitionJobStatusAsync(
+                job,
+                JobStatus.PENDING_UPLOAD,
+                StatusChangeSource.User,
+                metadata: new
+                {
+                    storageProfileId = job.StorageProfileId,
+                    storageProfileName = job.StorageProfile?.ProfileName,
+                    redispatched = true,
+                    hangfireJobId
+                });
+
+            logger.LogInformation("Upload re-dispatched after destination change | JobId: {JobId} | HangfireJobId: {HangfireJobId}",
+                job.Id, hangfireJobId);
+        }
+
+        /// <summary>
+        /// Fails fast at job creation when the chosen destination is unreachable and the
+        /// user has no other profile of that provider for failover to land on.
+        /// </summary>
+        private async Task EnsureDestinationIsReachableAsync(UserStorageProfile profile, int userId)
+        {
+            var health = await storageHealthService.GetHealthAsync(profile);
+            if (health.IsUsable) return;
+
+            var alternativesSpec = new BaseSpecification<UserStorageProfile>(p =>
+                p.UserId == userId &&
+                p.IsActive &&
+                p.Id != profile.Id &&
+                p.ProviderType == profile.ProviderType &&
+                !p.NeedsReauth);
+
+            var alternatives = await unitOfWork.Repository<UserStorageProfile>().ListAsync(alternativesSpec);
+
+            if (alternatives.Count == 0)
+            {
+                logger.LogWarning("Rejecting job creation: destination unusable with no alternative | ProfileId: {ProfileId} | Reason: {Reason}",
+                    profile.Id, health.Reason);
+
+                throw new BusinessRuleException(
+                    "StorageUnhealthy",
+                    health.Message ?? $"{profile.ProfileName} is not accepting uploads right now.");
+            }
+
+            // Another account can take the upload, so accept the job and let the upload
+            // worker reroute it once the download finishes.
+            logger.LogWarning(
+                "Creating job against an unhealthy destination; failover will pick another profile | ProfileId: {ProfileId} | Reason: {Reason}",
+                profile.Id, health.Reason);
         }
 
         public async Task CancelJobAsync(int jobId, int userId, UserRole? userRole = null)
@@ -345,7 +493,7 @@ namespace TorreClou.Application.Services
             }
         }
 
-        private void ValidateJobForRetry(UserJob job, int userId, UserRole? userRole)
+        private void ValidateJobStatusForRetry(UserJob job, int userId)
         {
             if (job.Status == JobStatus.COMPLETED)
             {
@@ -364,11 +512,48 @@ namespace TorreClou.Application.Services
                 logger.LogWarning("Attempt to retry active job | JobId: {JobId} | Status: {Status} | UserId: {UserId}", job.Id, job.Status, userId);
                 throw new BusinessRuleException("JobActive", $"Job is currently {job.Status}. Wait for it to complete or fail before retrying.");
             }
+        }
 
+        /// <summary>
+        /// Runs after any requested redirect, so it checks the destination the retry will
+        /// actually use rather than the one that failed.
+        /// </summary>
+        private void ValidateRetryDestination(UserJob job, int userId)
+        {
             if (job.StorageProfile == null || !job.StorageProfile.IsActive)
             {
                 logger.LogWarning("Attempt to retry job with inactive storage profile | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
-                throw new BusinessRuleException("StorageInactive", "The storage profile for this job is no longer active.");
+                throw new BusinessRuleException(
+                    "StorageInactive",
+                    "The storage profile for this job is no longer active. Retry it against another drive.");
+            }
+        }
+
+        /// <summary>
+        /// A destination can be changed any time before bytes are moving. While an upload
+        /// is actually running the worker holds a lock and a token for the old profile, so
+        /// the change has to go through a retry instead.
+        /// </summary>
+        private void ValidateJobForStorageChange(UserJob job, int userId)
+        {
+            if (job.Status == JobStatus.COMPLETED)
+            {
+                logger.LogWarning("Attempt to reroute completed job | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
+                throw new BusinessRuleException("JobCompleted", "Cannot change the destination of a completed job.");
+            }
+
+            if (job.Status == JobStatus.CANCELLED)
+            {
+                logger.LogWarning("Attempt to reroute cancelled job | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
+                throw new BusinessRuleException("JobCancelled", "Cannot change the destination of a cancelled job.");
+            }
+
+            if (job.Status == JobStatus.UPLOADING)
+            {
+                logger.LogWarning("Attempt to reroute job during upload | JobId: {JobId} | UserId: {UserId}", job.Id, userId);
+                throw new BusinessRuleException(
+                    "JobUploading",
+                    "This job is uploading right now. Cancel or wait for it to fail, then retry it against another drive.");
             }
         }
 

@@ -49,15 +49,46 @@ namespace TorreClou.GoogleDrive.Worker
                 return true;
             }
 
-            // 4. Enqueue to Hangfire
-            // We don't need to pass downloadPath/profileId manually; 
+            // 4. Route before enqueueing.
+            // The upload job re-checks this, but resolving here means a job whose drive died
+            // during the download is moved to a healthy account before it ever reaches the
+            // queue — and one with nowhere to go fails immediately instead of burning
+            // Hangfire retries.
+            var routingService = services.GetRequiredService<IUploadRoutingService>();
+            var route = await routingService.ResolveTargetAsync(job, job.TotalBytes, token);
+
+            if (!route.HasTarget)
+            {
+                var jobStatusService = services.GetRequiredService<IJobStatusService>();
+                var message = route.Message ?? "No healthy storage destination is available for this upload.";
+
+                Logger.LogError("[GD_WORKER] No healthy destination for Job {Id}. {Message}", jobId, message);
+
+                job.CompletedAt = DateTime.UtcNow;
+                await jobStatusService.TransitionJobStatusAsync(
+                    job,
+                    JobStatus.UPLOAD_FAILED,
+                    StatusChangeSource.System,
+                    message,
+                    new { storageRoutingFailed = true, profileId = job.StorageProfileId });
+
+                return true; // Acked: requeuing cannot help until the user reconnects a drive.
+            }
+
+            if (route.Rerouted)
+            {
+                Logger.LogWarning("[GD_WORKER] Job {Id} rerouted before dispatch | {Message}", jobId, route.Message);
+            }
+
+            // 5. Enqueue to Hangfire
+            // We don't need to pass downloadPath/profileId manually;
             // the Job itself (GoogleDriveUploadJob) should load the entity from DB to get those details.
             Logger.LogInformation("[GD_WORKER] Enqueuing Job {Id}...", jobId);
 
             var hangfireJobId = backgroundJobClient.Enqueue<IGoogleDriveUploadJob>(
                 service => service.ExecuteAsync(jobId.Value, CancellationToken.None));
 
-            // 5. Update State
+            // 6. Update State
             job.HangfireJobId = hangfireJobId;
             job.Status = JobStatus.PENDING_UPLOAD;
             job.CurrentState = "Queued for Google Drive Upload";

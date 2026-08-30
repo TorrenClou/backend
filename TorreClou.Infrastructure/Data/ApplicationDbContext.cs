@@ -74,6 +74,8 @@ namespace TorreClou.Infrastructure.Data
             builder.Entity<UserStorageProfile>()
                 .Property(p => p.CredentialsJson).HasColumnType("jsonb");
             builder.Entity<UserStorageProfile>()
+                .Property(p => p.HealthStatus).HasConversion<string>();
+            builder.Entity<UserStorageProfile>()
                 .HasOne(p => p.OAuthCredential)
                 .WithMany()
                 .HasForeignKey(p => p.OAuthCredentialId)
@@ -97,6 +99,13 @@ namespace TorreClou.Infrastructure.Data
                 .Property(j => j.Type).HasConversion<string>();
             builder.Entity<UserJob>()
                 .Property(e => e.SelectedFilePaths).HasColumnType("text[]"); // PostgreSQL Array
+            builder.Entity<UserJob>()
+                .Property(j => j.LastRouteReason).HasConversion<string>();
+            builder.Entity<UserJob>()
+                .HasOne<UserStorageProfile>()
+                .WithMany()
+                .HasForeignKey(j => j.OriginalStorageProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
 
 
             // --- Job Status History (Timeline) ---

@@ -18,6 +18,8 @@ namespace TorreClou.GoogleDrive.Worker.Services
         ITransferSpeedMetrics speedMetrics,
         IRedisLockService redisLockService,
         IJobStatusService jobStatusService,
+        IUploadRoutingService uploadRoutingService,
+        IStorageProfileHealthService storageHealthService,
         IDownloadCleanupService downloadCleanupService) : UserJobBase<GoogleDriveUploadJob>(unitOfWork, logger, jobStatusService), IGoogleDriveUploadJob
     {
 
@@ -44,8 +46,6 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             if (!await ValidateEnvironmentAsync(job)) return;
 
-            var accessToken = await AuthenticateAsync(job, cancellationToken);
-
             var allFiles = GetFilesToUpload(job.DownloadPath!);
             if (allFiles.Length == 0)
             {
@@ -55,6 +55,13 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             var totalBytes = allFiles.Sum(f => f.Length);
             var uploadStartTime = DateTime.UtcNow;
+
+            // Pick the destination before authenticating: a revoked or full Drive is moved
+            // to another healthy account of the same user rather than failing the job.
+            if (!await ResolveDestinationAsync(job, totalBytes, cancellationToken)) return;
+
+            var accessToken = await AuthenticateAsync(job, totalBytes, cancellationToken);
+            if (accessToken == null) return;
 
             ConfigureProgressContext(job, totalBytes);
 
@@ -68,6 +75,33 @@ namespace TorreClou.GoogleDrive.Worker.Services
         }
 
         // --- Step Handlers ---
+
+        /// <summary>
+        /// Ensures the job points at a storage profile that can accept the upload,
+        /// rerouting to a healthy one when it cannot. Returns false when the job has been
+        /// failed because nothing usable is left.
+        /// </summary>
+        private async Task<bool> ResolveDestinationAsync(UserJob job, long totalBytes, CancellationToken token)
+        {
+            var route = await uploadRoutingService.ResolveTargetAsync(job, totalBytes, token);
+
+            if (!route.HasTarget)
+            {
+                // Nothing left to try — a Hangfire retry would hit the same wall.
+                await MarkJobFailedAsync(job, route.Message ?? "No healthy storage destination is available for this upload.");
+                return false;
+            }
+
+            if (route.Rerouted)
+            {
+                Logger.LogWarning("{LogPrefix} Destination rerouted | JobId: {JobId} | {Message}",
+                    LogPrefix, job.Id, route.Message);
+
+                await UpdateHeartbeatAsync(job, $"Switched destination to {route.Target!.ProfileName}");
+            }
+
+            return true;
+        }
 
         private async Task<IRedisLock?> AcquireJobLockAsync(UserJob job, CancellationToken token)
         {
@@ -150,21 +184,65 @@ namespace TorreClou.GoogleDrive.Worker.Services
             return true;
         }
 
-        private async Task<string> AuthenticateAsync(UserJob job, CancellationToken token)
+        /// <summary>
+        /// Gets an access token for the job's destination. When the destination rejects the
+        /// refresh (revoked token, exhausted quota), fails over to another healthy profile
+        /// and tries again. Returns null when the job has already been marked failed.
+        /// </summary>
+        private async Task<string?> AuthenticateAsync(UserJob job, long totalBytes, CancellationToken token)
         {
             await UpdateHeartbeatAsync(job, "Authenticating...");
 
-            var accessToken = await googleDriveService.GetAccessTokenAsync(job.StorageProfile!, token);
+            try
+            {
+                var accessToken = await googleDriveService.GetAccessTokenAsync(job.StorageProfile!, token);
 
-            // Token refresh has already persisted changes, but ensure we save any other job updates
-            await UnitOfWork.Complete();
-            return accessToken;
+                // Token refresh has already persisted changes, but ensure we save any other job updates
+                await UnitOfWork.Complete();
+                return accessToken;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "{LogPrefix} Authentication failed | JobId: {JobId} | ProfileId: {ProfileId}",
+                    LogPrefix, job.Id, job.StorageProfileId);
+
+                var route = await uploadRoutingService.FailoverAsync(job, ex, totalBytes, token);
+
+                if (!route.HasTarget)
+                {
+                    await MarkJobFailedAsync(job, route.Message ?? ex.Message);
+                    return null;
+                }
+
+                await UpdateHeartbeatAsync(job, $"Switched destination to {route.Target!.ProfileName}");
+
+                try
+                {
+                    var accessToken = await googleDriveService.GetAccessTokenAsync(route.Target, token);
+                    await UnitOfWork.Complete();
+                    return accessToken;
+                }
+                catch (Exception retryEx)
+                {
+                    Logger.LogError(retryEx, "{LogPrefix} Authentication failed after reroute | JobId: {JobId} | ProfileId: {ProfileId}",
+                        LogPrefix, job.Id, route.Target.Id);
+
+                    await storageHealthService.RecordFailureAsync(route.Target, retryEx, token);
+                    await MarkJobFailedAsync(job, $"Could not authenticate with {route.Target.ProfileName}: {retryEx.Message}", hasRetries: true);
+                    return null;
+                }
+            }
         }
 
         private void ConfigureProgressContext(UserJob job, long totalBytes)
         {
             progressContext.Configure(
                 job.Id,
+                job.StorageProfileId,
                 totalBytes,
                 Logger,
                 async (stateMessage, percent) =>
@@ -203,8 +281,21 @@ namespace TorreClou.GoogleDrive.Worker.Services
         {
             if (!result.AllFilesUploaded)
             {
+                // Score the destination before retrying. If the failure was the drive's fault
+                // (revoked token, no space), this demotes it so the Hangfire retry resolves
+                // to a different profile instead of hitting the same wall.
+                if (job.StorageProfile != null && result.LastError != null)
+                {
+                    await storageHealthService.RecordFailureAsync(job.StorageProfile, result.LastError);
+                }
+
                 await MarkJobFailedAsync(job, $"Failed to upload {result.FailedFiles} of {result.TotalFiles} files.", hasRetries: true);
                 return;
+            }
+
+            if (job.StorageProfile != null)
+            {
+                await storageHealthService.RecordSuccessAsync(job.StorageProfile);
             }
 
             var duration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
@@ -379,6 +470,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 catch (Exception ex)
                 {
                     result.FailedFiles++;
+                    result.LastError = ex;
                     Logger.LogCritical(ex, "{LogPrefix} Upload failed for {File}", LogPrefix, file.Name);
 
                     // Recover partial progress — non-fatal

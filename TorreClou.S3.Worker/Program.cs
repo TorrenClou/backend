@@ -55,6 +55,9 @@ try
     builder.Services.AddScoped<IDownloadCleanupService, DownloadCleanupService>();
     builder.Services.AddScoped<ITransferSpeedMetrics, TransferSpeedMetrics>();
 
+    // Storage connection health + upload failover routing (JobService depends on it)
+    builder.Services.AddStorageRoutingServices(builder.Configuration);
+
     // Hosted Services
     builder.Services.Configure<JobHealthMonitorOptions>(opts =>
     {

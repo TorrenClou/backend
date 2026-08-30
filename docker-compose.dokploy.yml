@@ -67,6 +67,9 @@ services:
       - APPLY_MIGRATIONS=${APPLY_MIGRATIONS:-true}
       - Observability__EnablePrometheus=${OBSERVABILITY_ENABLE_PROMETHEUS:-true}
       - Observability__EnableTracing=${OBSERVABILITY_ENABLE_TRACING:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-}
       - Observability__OtlpEndpoint=${OBSERVABILITY_OTLP_ENDPOINT:-}
       - Observability__OtlpHeaders=${OBSERVABILITY_OTLP_HEADERS:-}
@@ -97,6 +100,9 @@ services:
       - TORRENT_DOWNLOAD_PATH=${TORRENT_DOWNLOAD_PATH:-/app/downloads}
       - Observability__EnablePrometheus=${OBSERVABILITY_ENABLE_PROMETHEUS:-true}
       - Observability__EnableTracing=${OBSERVABILITY_ENABLE_TRACING:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-}
       - Observability__OtlpEndpoint=${OBSERVABILITY_OTLP_ENDPOINT:-}
     depends_on:
@@ -122,6 +128,9 @@ services:
       - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - Observability__EnablePrometheus=${OBSERVABILITY_ENABLE_PROMETHEUS:-true}
       - Observability__EnableTracing=${OBSERVABILITY_ENABLE_TRACING:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-}
       - Observability__OtlpEndpoint=${OBSERVABILITY_OTLP_ENDPOINT:-}
     depends_on:
@@ -147,6 +156,9 @@ services:
       - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - Observability__EnablePrometheus=${OBSERVABILITY_ENABLE_PROMETHEUS:-true}
       - Observability__EnableTracing=${OBSERVABILITY_ENABLE_TRACING:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-}
       - Observability__OtlpEndpoint=${OBSERVABILITY_OTLP_ENDPOINT:-}
     depends_on:

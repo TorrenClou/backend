@@ -71,6 +71,32 @@ namespace TorreClou.Infrastructure.Services
 
 
         /// <inheritdoc />
+        public async Task RecordJobEventAsync(
+            UserJob job,
+            string message,
+            StatusChangeSource source,
+            object? metadata = null)
+        {
+            var historyEntry = new JobStatusHistory
+            {
+                JobId = job.Id,
+                FromStatus = job.Status,
+                ToStatus = job.Status,
+                Source = source,
+                // Not an error: the message rides in metadata so job.ErrorMessage stays clean.
+                MetadataJson = JsonSerializer.Serialize(
+                    new { message, details = metadata }, JsonOptions),
+                ChangedAt = DateTime.UtcNow
+            };
+
+            unitOfWork.Repository<JobStatusHistory>().Add(historyEntry);
+            await unitOfWork.Complete();
+
+            logger.LogInformation("Job {JobId} event recorded | Source: {Source} | {Message}", job.Id, source, message);
+        }
+
+
+        /// <inheritdoc />
         public async Task RecordInitialJobStatusAsync(UserJob job, object? metadata = null)
         {
             var historyEntry = new JobStatusHistory

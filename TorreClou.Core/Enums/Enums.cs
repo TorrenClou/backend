@@ -4,6 +4,41 @@
 
     public enum StorageProviderType { GoogleDrive, S3 }
 
+    /// <summary>
+    /// Connection health of a <c>UserStorageProfile</c>, used to decide whether an
+    /// upload can be routed to it.
+    /// </summary>
+    public enum StorageHealthStatus
+    {
+        /// <summary>Never probed, or the last probe result has expired.</summary>
+        Unknown,
+        /// <summary>Provider reachable and credentials valid.</summary>
+        Healthy,
+        /// <summary>Usable but at risk (low free quota, transient failures).</summary>
+        Degraded,
+        /// <summary>Unusable: revoked token, quota exhausted, or provider errors.</summary>
+        Unhealthy
+    }
+
+    /// <summary>
+    /// Why an upload was moved from one storage profile to another.
+    /// </summary>
+    public enum StorageRouteReason
+    {
+        /// <summary>Job kept the profile it was created with.</summary>
+        None,
+        /// <summary>A user explicitly pinned the job to a storage profile.</summary>
+        UserRouted,
+        /// <summary>Source profile needs re-authentication.</summary>
+        FailoverNeedsReauth,
+        /// <summary>Source profile is out of storage quota.</summary>
+        FailoverQuotaExceeded,
+        /// <summary>Source profile failed its health probe.</summary>
+        FailoverUnhealthy,
+        /// <summary>Source profile was disconnected or deleted.</summary>
+        FailoverInactive
+    }
+
     public enum FileStatus { PENDING, DOWNLOADING, READY, CORRUPTED, DELETED }
 
     public enum S3UploadProgressStatus

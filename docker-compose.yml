@@ -55,6 +55,9 @@ services:
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:47100}
       - APPLY_MIGRATIONS=${APPLY_MIGRATIONS:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
       - Observability__LokiApiKey=${OBSERVABILITY_LOKI_API_KEY:-}
@@ -89,6 +92,9 @@ services:
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
       - TORRENT_DOWNLOAD_PATH=${TORRENT_DOWNLOAD_PATH:-/app/downloads}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
       - Observability__LokiApiKey=${OBSERVABILITY_LOKI_API_KEY:-}
@@ -119,6 +125,9 @@ services:
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
       - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
       - Observability__LokiApiKey=${OBSERVABILITY_LOKI_API_KEY:-}
@@ -149,6 +158,9 @@ services:
       - Redis__ConnectionString=redis:6379
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
       - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
+      - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
+      - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
+      - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
       - Observability__LokiUrl=${OBSERVABILITY_LOKI_URL:-http://loki:3100}
       - Observability__LokiUsername=${OBSERVABILITY_LOKI_USERNAME:-}
       - Observability__LokiApiKey=${OBSERVABILITY_LOKI_API_KEY:-}
