@@ -22,6 +22,7 @@ namespace TorreClou.Infrastructure.Services.Drive
 
         // Config
         private int _jobId;
+        private int _storageProfileId;
         private long _totalBytes;
         private ILogger? _logger;
         private Func<string, double, Task>? _onDbUpdate;
@@ -29,9 +30,10 @@ namespace TorreClou.Infrastructure.Services.Drive
 
         public bool IsConfigured => _isConfigured;
 
-        public void Configure(int jobId, long totalBytes, ILogger logger, Func<string, double, Task> onDbUpdate)
+        public void Configure(int jobId, int storageProfileId, long totalBytes, ILogger logger, Func<string, double, Task> onDbUpdate)
         {
             _jobId = jobId;
+            _storageProfileId = storageProfileId;
             _totalBytes = totalBytes;
             _logger = logger;
             _onDbUpdate = onDbUpdate;
@@ -150,12 +152,15 @@ namespace TorreClou.Infrastructure.Services.Drive
             return await redisCache.GetAsync(GetRootFolderKey(jobId));
         }
 
-
         // --- Helpers ---
+        //
+        // Every progress key carries the storage profile the bytes were written to. A job
+        // that fails over to another Drive account therefore never resumes against file or
+        // folder IDs that only exist in the account it left.
 
-        private string GetResumeKey(string path) => $"gdrive:resume:{_jobId}:{SanitizeKey(path)}";
-        private string GetCompletedFileKey(string path) => $"gdrive:completed:{_jobId}:{SanitizeKey(path)}";
-        private static string GetRootFolderKey(int jobId) => $"gdrive:rootfolder:{jobId}";
+        private string GetResumeKey(string path) => $"gdrive:resume:{_jobId}:{_storageProfileId}:{SanitizeKey(path)}";
+        private string GetCompletedFileKey(string path) => $"gdrive:completed:{_jobId}:{_storageProfileId}:{SanitizeKey(path)}";
+        private string GetRootFolderKey(int jobId) => $"gdrive:rootfolder:{jobId}:{_storageProfileId}";
 
         private static string SanitizeKey(string path)
         {

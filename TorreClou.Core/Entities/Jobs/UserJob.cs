@@ -11,8 +11,35 @@ namespace TorreClou.Core.Entities.Jobs
         public User User { get; set; } = null!;
 
 
+        /// <summary>
+        /// The storage profile this job currently uploads to. Automatic failover and
+        /// user routing both rewrite this field; <see cref="OriginalStorageProfileId"/>
+        /// keeps the profile the job was created with.
+        /// </summary>
         public int StorageProfileId { get; set; }
         public UserStorageProfile StorageProfile { get; set; } = null!;
+
+        /// <summary>
+        /// Profile the job was created with. Set the first time the job is rerouted, so the
+        /// original destination stays visible after a failover.
+        /// </summary>
+        public int? OriginalStorageProfileId { get; set; }
+
+        /// <summary>
+        /// When false, an unhealthy destination fails the job instead of moving it to
+        /// another profile. Set false when a user pins the job to a specific drive.
+        /// </summary>
+        public bool AllowStorageFailover { get; set; } = true;
+
+        /// <summary>
+        /// Number of automatic reroutes performed for this job. Bounded by
+        /// <c>UploadRoutingOptions.MaxFailoverAttempts</c> so a job cannot walk every
+        /// profile a user owns.
+        /// </summary>
+        public int FailoverAttempts { get; set; }
+
+        /// <summary>Why the job last changed storage profile.</summary>
+        public StorageRouteReason LastRouteReason { get; set; } = StorageRouteReason.None;
 
         public JobStatus Status { get; set; } = JobStatus.QUEUED;
 

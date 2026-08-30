@@ -19,6 +19,7 @@ namespace TorreClou.Application.Services
         IOAuthService OAuthService,
         IStorageProfilesService profilesService,
         IUserService userService,
+        IStorageProfileHealthService storageProfileHealthService,
         ILogger<GoogleDriveAuthService> logger) : IGoogleDriveAuthService
     {
         private const string RedisKeyPrefixConfigure = "oauth:gdrive:state:";
@@ -241,6 +242,14 @@ namespace TorreClou.Application.Services
                 profile.NeedsReauth = false;
                 profile.Email = email ?? profile.Email;
                 profile.OAuthCredentialId = credential.Id;
+
+                // Fresh tokens clear the health verdict that revoked ones produced, so the
+                // profile is eligible for uploads again without waiting for a probe.
+                profile.HealthStatus = StorageHealthStatus.Healthy;
+                profile.LastHealthError = null;
+                profile.LastHealthCheckAt = DateTime.UtcNow;
+                profile.ConsecutiveFailures = 0;
+                await storageProfileHealthService.InvalidateAsync(profile.Id);
 
                 logger.LogInformation("Updating profile {ProfileId} with new tokens for user {UserId}", profile.Id, userId);
             }

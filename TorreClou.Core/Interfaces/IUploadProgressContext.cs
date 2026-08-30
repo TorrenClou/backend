@@ -11,7 +11,13 @@ namespace TorreClou.Core.Interfaces
         bool IsConfigured { get; }
 
         Task ClearResumeUriAsync(string relativePath);
-        void Configure(int jobId, long totalBytes, ILogger logger, Func<string, double, Task> onDbUpdate);
+        /// <summary>
+        /// Binds this context to one job and one storage profile. Redis progress keys are
+        /// namespaced by <paramref name="storageProfileId"/>, so an upload rerouted to a
+        /// different drive starts clean instead of resuming against file IDs that only
+        /// exist on the old one.
+        /// </summary>
+        void Configure(int jobId, int storageProfileId, long totalBytes, ILogger logger, Func<string, double, Task> onDbUpdate);
         Task<string?> GetCompletedFileAsync(string relativePath);
         Task<string?> GetResumeUriAsync(string relativePath);
         Task<string?> GetRootFolderIdAsync(int jobId);

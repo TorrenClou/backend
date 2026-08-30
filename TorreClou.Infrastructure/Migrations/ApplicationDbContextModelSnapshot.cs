@@ -142,6 +142,9 @@ namespace TorreClou.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowStorageFailover")
+                        .HasColumnType("boolean");
+
                     b.Property<long>("BytesDownloaded")
                         .HasColumnType("bigint");
 
@@ -163,6 +166,9 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
+                    b.Property<int>("FailoverAttempts")
+                        .HasColumnType("integer");
+
                     b.Property<string>("HangfireJobId")
                         .HasColumnType("text");
 
@@ -172,8 +178,15 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<DateTime?>("LastHeartbeat")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("LastRouteReason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("NextRetryAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("OriginalStorageProfileId")
+                        .HasColumnType("integer");
 
                     b.Property<int>("RequestFileId")
                         .HasColumnType("integer");
@@ -206,6 +219,8 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OriginalStorageProfileId");
+
                     b.HasIndex("RequestFileId");
 
                     b.HasIndex("StorageProfileId");
@@ -223,6 +238,9 @@ namespace TorreClou.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -233,11 +251,21 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<string>("Email")
                         .HasColumnType("text");
 
+                    b.Property<string>("HealthStatus")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsDefault")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastHealthCheckAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastHealthError")
+                        .HasColumnType("text");
 
                     b.Property<bool>("NeedsReauth")
                         .HasColumnType("boolean");
@@ -252,6 +280,12 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<string>("ProviderType")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<long?>("QuotaTotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("QuotaUsedBytes")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -412,6 +446,11 @@ namespace TorreClou.Infrastructure.Migrations
 
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.UserJob", b =>
                 {
+                    b.HasOne("TorreClou.Core.Entities.Jobs.UserStorageProfile", null)
+                        .WithMany()
+                        .HasForeignKey("OriginalStorageProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("TorreClou.Core.Entities.Torrents.RequestedFile", "RequestFile")
                         .WithMany()
                         .HasForeignKey("RequestFileId")

@@ -1,3 +1,5 @@
+using TorreClou.Core.Enums;
+
 namespace TorreClou.Core.DTOs.Storage
 {
     public class StorageProfileDetailDto
@@ -11,6 +13,21 @@ namespace TorreClou.Core.DTOs.Storage
         public bool NeedsReauth { get; set; }
         /// <summary>True when the profile has completed OAuth and has a refresh token.</summary>
         public bool IsConfigured { get; set; }
+
+        /// <summary>Last known connection health. See IStorageProfileHealthService.</summary>
+        public StorageHealthStatus HealthStatus { get; set; } = StorageHealthStatus.Unknown;
+
+        /// <summary>True when this profile can accept an upload right now.</summary>
+        public bool IsUsable { get; set; } = true;
+
+        /// <summary>Why the profile is not healthy. Null when it is.</summary>
+        public string? HealthMessage { get; set; }
+
+        public DateTime? LastHealthCheckAt { get; set; }
+
+        public long? QuotaTotalBytes { get; set; }
+        public long? QuotaUsedBytes { get; set; }
+        public long? QuotaFreeBytes { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
