@@ -207,6 +207,8 @@ namespace TorreClou.Application.Services
                 BytesDownloaded = job.BytesDownloaded,
                 BytesUploaded = job.BytesUploaded,
                 TotalBytes = job.TotalBytes,
+                DownloadSpeedBytesPerSecond = job.DownloadSpeedBytesPerSecond,
+                UploadSpeedBytesPerSecond = job.UploadSpeedBytesPerSecond,
                 SelectedFilePaths = job.SelectedFilePaths,
                 CreatedAt = job.CreatedAt,
                 UpdatedAt = job.UpdatedAt
@@ -265,6 +267,8 @@ namespace TorreClou.Application.Services
                 BytesDownloaded = job.BytesDownloaded,
                 BytesUploaded = job.BytesUploaded,
                 TotalBytes = job.TotalBytes,
+                DownloadSpeedBytesPerSecond = job.DownloadSpeedBytesPerSecond,
+                UploadSpeedBytesPerSecond = job.UploadSpeedBytesPerSecond,
                 SelectedFilePaths = job.SelectedFilePaths,
                 CreatedAt = job.CreatedAt,
                 UpdatedAt = job.UpdatedAt,
@@ -804,9 +808,10 @@ namespace TorreClou.Application.Services
             await unitOfWork.Complete();
         }
 
-        public async Task UpdateJobProgressAsync(UserJob job, long bytesUploaded)
+        public async Task UpdateJobProgressAsync(UserJob job, long bytesUploaded, double bytesPerSecond = 0)
         {
             job.BytesUploaded = bytesUploaded;
+            job.UploadSpeedBytesPerSecond = bytesPerSecond;
             job.LastHeartbeat = DateTime.UtcNow;
             await unitOfWork.Complete();
         }

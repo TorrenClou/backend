@@ -163,6 +163,9 @@ namespace TorreClou.Infrastructure.Migrations
                     b.Property<string>("DownloadPath")
                         .HasColumnType("text");
 
+                    b.Property<double>("DownloadSpeedBytesPerSecond")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
@@ -213,6 +216,9 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("UploadSpeedBytesPerSecond")
+                        .HasColumnType("double precision");
 
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
@@ -422,6 +428,34 @@ namespace TorreClou.Infrastructure.Migrations
                     b.ToTable("UserOAuthCredentials", "dev");
                 });
 
+            modelBuilder.Entity("TorreClou.Core.Entities.UserSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("DeleteAfterUpload")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserSettings", "dev");
+                });
+
             modelBuilder.Entity("TorreClou.Core.Entities.Jobs.JobStatusHistory", b =>
                 {
                     b.HasOne("TorreClou.Core.Entities.Jobs.UserJob", "Job")
@@ -506,6 +540,17 @@ namespace TorreClou.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("TorreClou.Core.Entities.UserOAuthCredential", b =>
+                {
+                    b.HasOne("TorreClou.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TorreClou.Core.Entities.UserSettings", b =>
                 {
                     b.HasOne("TorreClou.Core.Entities.User", "User")
                         .WithMany()

@@ -33,6 +33,12 @@ namespace TorreClou.Core.DTOs.Jobs
         public long BytesDownloaded { get; set; }
         public long BytesUploaded { get; set; }
         public long TotalBytes { get; set; }
+
+        /// <summary>Current download rate in bytes/sec. Meaningful only while downloading.</summary>
+        public double DownloadSpeedBytesPerSecond { get; set; }
+
+        /// <summary>Current upload rate in bytes/sec. Meaningful only while uploading.</summary>
+        public double UploadSpeedBytesPerSecond { get; set; }
         public string[]? SelectedFilePaths { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

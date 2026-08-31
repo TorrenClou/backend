@@ -17,7 +17,7 @@ namespace TorreClou.Core.Interfaces
         /// different drive starts clean instead of resuming against file IDs that only
         /// exist on the old one.
         /// </summary>
-        void Configure(int jobId, int storageProfileId, long totalBytes, ILogger logger, Func<string, double, Task> onDbUpdate);
+        void Configure(int jobId, int storageProfileId, long totalBytes, ILogger logger, Func<string, double, double, Task> onDbUpdate);
         Task<string?> GetCompletedFileAsync(string relativePath);
         Task<string?> GetResumeUriAsync(string relativePath);
         Task<string?> GetRootFolderIdAsync(int jobId);

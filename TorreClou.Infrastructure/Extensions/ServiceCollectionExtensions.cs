@@ -39,6 +39,9 @@ namespace TorreClou.Infrastructure.Extensions
             // Health Check Service
             services.AddScoped<IHealthCheckService, HealthCheckService>();
 
+            // Downloads volume inspection and purge (API mounts the same volume)
+            services.AddScoped<IDownloadMaintenanceService, DownloadMaintenanceService>();
+
             // Storage connection health + upload failover routing
             services.AddStorageRoutingServices(configuration);
 
