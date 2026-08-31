@@ -32,5 +32,25 @@ namespace TorreClou.API.Controllers.Torrents
 
             return Ok(result);
         }
+
+        /// <summary>
+        /// Starts several analysed torrents at once. Every item is reported back
+        /// individually, so one rejected torrent does not stop the others.
+        /// </summary>
+        [HttpPost("create-jobs")]
+        public async Task<IActionResult> CreateJobsAsync([FromBody] CreateJobsRequestDto request)
+        {
+            var userId = GetCurrentUserId();
+
+            logger.LogInformation("Batch job creation requested | Items: {Count} | UserId: {UserId}",
+                request.Items?.Count ?? 0, userId);
+
+            var result = await jobService.CreateAndDispatchJobsAsync(userId, request);
+
+            logger.LogInformation("Batch job creation finished | Succeeded: {Succeeded} | Failed: {Failed} | UserId: {UserId}",
+                result.SucceededCount, result.FailedCount, userId);
+
+            return Ok(result);
+        }
     }
 }

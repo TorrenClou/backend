@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TorreClou.Core.DTOs.Common;
 using TorreClou.Core.DTOs.Jobs;
+using TorreClou.Core.DTOs.Torrents;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Entities.Torrents;
 using TorreClou.Core.Enums;
@@ -80,6 +81,97 @@ namespace TorreClou.Application.Services
             {
                 JobId = job.Id,
                 StorageProfileId = storageProfile.Id,
+            };
+        }
+
+        /// <summary>
+        /// Maximum torrents startable in one batch. Each item costs a health probe, an
+        /// insert and a stream publish, so the request stays bounded.
+        /// </summary>
+        private const int MaxBatchSize = 20;
+
+        public async Task<BatchJobCreationResultDto> CreateAndDispatchJobsAsync(int userId, CreateJobsRequestDto request)
+        {
+            if (request.Items == null || request.Items.Count == 0)
+                throw new ValidationException("EmptyBatch", "No torrents were provided.");
+
+            if (request.Items.Count > MaxBatchSize)
+                throw new ValidationException("BatchTooLarge", $"You can start at most {MaxBatchSize} torrents at once.");
+
+            logger.LogInformation("Batch job creation requested | UserId: {UserId} | Items: {Count}", userId, request.Items.Count);
+
+            var outcomes = new List<JobCreationOutcomeDto>(request.Items.Count);
+
+            foreach (var item in request.Items)
+            {
+                // Each item is dispatched on its own. A duplicate or an unreachable drive
+                // fails that torrent only — the rest of the batch still starts.
+                var storageProfileId = item.StorageProfileId ?? request.StorageProfileId;
+
+                if (storageProfileId is not > 0)
+                {
+                    outcomes.Add(new JobCreationOutcomeDto
+                    {
+                        TorrentFileId = item.TorrentFileId,
+                        Success = false,
+                        ErrorCode = "InvalidStorageProfile",
+                        ErrorMessage = "No storage destination was selected for this torrent."
+                    });
+                    continue;
+                }
+
+                try
+                {
+                    var result = await CreateAndDispatchJobAsync(
+                        item.TorrentFileId, userId, item.SelectedFilePaths, storageProfileId.Value);
+
+                    outcomes.Add(new JobCreationOutcomeDto
+                    {
+                        TorrentFileId = item.TorrentFileId,
+                        JobId = result.JobId,
+                        Success = true
+                    });
+                }
+                catch (DomainException ex)
+                {
+                    logger.LogWarning(
+                        "Batch item rejected | UserId: {UserId} | TorrentFileId: {TorrentFileId} | Code: {Code} | {Message}",
+                        userId, item.TorrentFileId, ex.Code, ex.Message);
+
+                    outcomes.Add(new JobCreationOutcomeDto
+                    {
+                        TorrentFileId = item.TorrentFileId,
+                        Success = false,
+                        ErrorCode = ex.Code,
+                        ErrorMessage = ex.Message
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex,
+                        "Batch item failed unexpectedly | UserId: {UserId} | TorrentFileId: {TorrentFileId}",
+                        userId, item.TorrentFileId);
+
+                    outcomes.Add(new JobCreationOutcomeDto
+                    {
+                        TorrentFileId = item.TorrentFileId,
+                        Success = false,
+                        ErrorCode = "JobCreationFailed",
+                        ErrorMessage = "This torrent could not be started. Please try again."
+                    });
+                }
+            }
+
+            var succeeded = outcomes.Count(o => o.Success);
+
+            logger.LogInformation("Batch job creation completed | UserId: {UserId} | Succeeded: {Succeeded} | Failed: {Failed}",
+                userId, succeeded, outcomes.Count - succeeded);
+
+            return new BatchJobCreationResultDto
+            {
+                Results = outcomes,
+                SucceededCount = succeeded,
+                FailedCount = outcomes.Count - succeeded
             };
         }
 
