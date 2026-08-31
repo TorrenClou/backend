@@ -1,5 +1,6 @@
 using TorreClou.Core.DTOs.Common;
 using TorreClou.Core.DTOs.Jobs;
+using TorreClou.Core.DTOs.Torrents;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Enums;
 
@@ -8,6 +9,13 @@ namespace TorreClou.Core.Interfaces
     public interface IJobService
     {
         Task<JobCreationResult> CreateAndDispatchJobAsync(int torrentFileId, int userId, string[]? selectedFiles, int storageProfileId);
+
+        /// <summary>
+        /// Creates and dispatches a job per item. Items are independent: a torrent that
+        /// fails validation, is a duplicate, or already has an active job is reported in
+        /// its own result and does not stop the others.
+        /// </summary>
+        Task<BatchJobCreationResultDto> CreateAndDispatchJobsAsync(int userId, CreateJobsRequestDto request);
         Task<PaginatedResult<JobDto>> GetUserJobsAsync(int userId, int pageNumber, int pageSize, JobStatus? status = null);
         Task<JobDto> GetJobByIdAsync(int userId, int jobId, UserRole? userRole = null);
         Task<JobStatisticsDto> GetUserJobStatisticsAsync(int userId);
