@@ -54,6 +54,12 @@ namespace TorreClou.Core.Interfaces
         /// </summary>
         Task ForceStartJobAsync(int jobId, int userId, UserRole? userRole = null);
 
+        /// <summary>
+        /// Current worker capacity and queue depth, so the UI can tell a job that is
+        /// waiting its turn from one that was dropped.
+        /// </summary>
+        Task<JobQueueStatusDto> GetQueueStatusAsync();
+
         Task CancelJobAsync(int jobId, int userId, UserRole? userRole = null);
 
         // Worker-facing job state updates

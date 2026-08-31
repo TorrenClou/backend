@@ -510,6 +510,61 @@ namespace TorreClou.Application.Services
                 profile.Id, health.Reason);
         }
 
+        /// <summary>
+        /// Queues a download job holds its worker for. Kept in sync with the queue names
+        /// on ITorrentDownloadJob and the worker's Hangfire server registration.
+        /// </summary>
+        private static readonly string[] DownloadQueues = ["torrents"];
+        private static readonly string[] UploadQueues = ["googledrive", "s3"];
+
+        public async Task<JobQueueStatusDto> GetQueueStatusAsync()
+        {
+            // Capacity comes from Hangfire (it owns the worker pools). Occupancy comes
+            // from our own job rows rather than Hangfire's Processing count, which can
+            // outlive the worker that owned it after a container restart and then
+            // reports more in-flight jobs than there are workers to run them.
+            var downloadCapacity = 0;
+            var uploadCapacity = 0;
+
+            try
+            {
+                var monitoringApi = JobStorage.Current?.GetMonitoringApi();
+                foreach (var server in monitoringApi?.Servers() ?? [])
+                {
+                    var queues = server.Queues ?? [];
+                    if (queues.Any(q => DownloadQueues.Contains(q, StringComparer.OrdinalIgnoreCase)))
+                        downloadCapacity += server.WorkersCount;
+
+                    if (queues.Any(q => UploadQueues.Contains(q, StringComparer.OrdinalIgnoreCase)))
+                        uploadCapacity += server.WorkersCount;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Capacity is advisory. Zero means "unknown" to callers, which is better
+                // than failing the request the UI needs to explain a waiting job.
+                logger.LogWarning(ex, "Could not read Hangfire server capacity");
+            }
+
+            var activeDownloads = await unitOfWork.Repository<UserJob>().CountAsync(
+                new BaseSpecification<UserJob>(j => j.Status == JobStatus.DOWNLOADING));
+
+            var queuedDownloads = await unitOfWork.Repository<UserJob>().CountAsync(
+                new BaseSpecification<UserJob>(j => j.Status == JobStatus.QUEUED));
+
+            var activeUploads = await unitOfWork.Repository<UserJob>().CountAsync(
+                new BaseSpecification<UserJob>(j => j.Status == JobStatus.UPLOADING));
+
+            return new JobQueueStatusDto
+            {
+                DownloadCapacity = downloadCapacity,
+                ActiveDownloads = activeDownloads,
+                QueuedDownloads = queuedDownloads,
+                UploadCapacity = uploadCapacity,
+                ActiveUploads = activeUploads
+            };
+        }
+
         public async Task ForceStartJobAsync(int jobId, int userId, UserRole? userRole = null)
         {
             logger.LogInformation("Force start requested | JobId: {JobId} | UserId: {UserId} | Role: {Role}", jobId, userId, userRole);

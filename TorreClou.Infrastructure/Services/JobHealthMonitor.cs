@@ -110,6 +110,11 @@ namespace TorreClou.Infrastructure.Services
             {
                 if (!ShouldRecoverJob(job, monitoringApi)) return;
 
+                // Remember what we are replacing. Recovery enqueues a fresh Hangfire job
+                // and overwrites this pointer, so once it is gone nothing references the
+                // old record any more.
+                var supersededHangfireId = job.HangfireJobId;
+
                 var newHangfireId = await strategy.RecoverJobAsync(job, client);
 
                 if (!string.IsNullOrEmpty(newHangfireId))
@@ -121,6 +126,13 @@ namespace TorreClou.Infrastructure.Services
                     // IMPORTANT: Save immediately to prevent loop processing same job if crash happens
                     await unitOfWork.Complete();
 
+                    // Retire the record we just replaced. Without this it stays in
+                    // Processing for ever with no owner and nothing pointing at it, so a
+                    // job that recovers repeatedly leaks one such record per cycle and the
+                    // dashboard ends up reporting more in-flight work than there are
+                    // workers to run it.
+                    RetireSupersededHangfireJob(job.Id, supersededHangfireId, newHangfireId);
+
                     _logger.LogInformation("Recovered Job {Id} via {Strategy}", job.Id, strategy.GetType().Name);
                 }
             }
@@ -129,6 +141,36 @@ namespace TorreClou.Infrastructure.Services
                 _logger.LogError(ex, "Failed to recover Job {Id}", job.Id);
             }
         }
+        /// <summary>
+        /// Deletes the Hangfire job that recovery has just replaced.
+        ///
+        /// Deleting a record that is still Processing does not abort the code already
+        /// running — Hangfire cannot force that — but it stops the record lingering as a
+        /// permanently in-flight job that no server owns.
+        /// </summary>
+        private void RetireSupersededHangfireJob(int jobId, string? supersededHangfireId, string newHangfireId)
+        {
+            if (string.IsNullOrEmpty(supersededHangfireId)) return;
+            if (supersededHangfireId == newHangfireId) return;
+
+            try
+            {
+                BackgroundJob.Delete(supersededHangfireId);
+
+                _logger.LogInformation(
+                    "[HEALTH] Retired superseded Hangfire job | JobId: {JobId} | Superseded: {Superseded} | Replacement: {Replacement}",
+                    jobId, supersededHangfireId, newHangfireId);
+            }
+            catch (Exception ex)
+            {
+                // The replacement is already enqueued; a stale record left behind is
+                // untidy, not broken. The reaper sweeps these up separately.
+                _logger.LogWarning(ex,
+                    "[HEALTH] Could not retire superseded Hangfire job | JobId: {JobId} | HangfireJobId: {HangfireJobId}",
+                    jobId, supersededHangfireId);
+            }
+        }
+
         private bool ShouldRecoverJob(IRecoverableJob job, IMonitoringApi? monitoringApi)
         {
             // If we don't have a Hangfire job ID, assume we should recover
