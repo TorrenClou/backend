@@ -71,6 +71,19 @@ namespace TorreClou.Core.Entities.Jobs
 
         public long TotalBytes { get; set; }
 
+        /// <summary>
+        /// Current download rate in bytes per second, refreshed by the torrent worker on
+        /// each progress write. Zero when nothing is transferring; stale once the job
+        /// leaves the download phase, so read it alongside Status.
+        /// </summary>
+        public double DownloadSpeedBytesPerSecond { get; set; }
+
+        /// <summary>
+        /// Current upload rate in bytes per second, refreshed by the upload worker on
+        /// each progress write.
+        /// </summary>
+        public double UploadSpeedBytesPerSecond { get; set; }
+
 
 
         public string[]? SelectedFilePaths { get; set; }

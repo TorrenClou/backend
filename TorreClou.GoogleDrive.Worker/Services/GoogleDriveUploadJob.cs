@@ -245,10 +245,11 @@ namespace TorreClou.GoogleDrive.Worker.Services
                 job.StorageProfileId,
                 totalBytes,
                 Logger,
-                async (stateMessage, percent) =>
+                async (stateMessage, percent, bytesPerSecond) =>
                 {
                     job.CurrentState = stateMessage;
                     job.BytesUploaded = (long)(totalBytes * percent / 100.0);
+                    job.UploadSpeedBytesPerSecond = bytesPerSecond;
                     job.LastHeartbeat = DateTime.UtcNow;
                     await UnitOfWork.Complete();
                 });
@@ -303,6 +304,7 @@ namespace TorreClou.GoogleDrive.Worker.Services
 
             job.CompletedAt = DateTime.UtcNow;
             job.BytesUploaded = totalBytes;
+            job.UploadSpeedBytesPerSecond = 0;
             job.CurrentState = "Upload completed successfully";
             job.NextRetryAt = null;
 

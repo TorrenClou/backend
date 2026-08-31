@@ -45,6 +45,8 @@ try
     builder.Services.AddScoped<IUploadProgressContext, UploadProgressContext>();
     builder.Services.AddScoped<ITransferSpeedMetrics, TransferSpeedMetrics>();
     builder.Services.AddScoped<IJobStatusService, TorreClou.Infrastructure.Services.JobStatusService>();
+    // DownloadCleanupService reads the delete-after-upload preference from the DB.
+    builder.Services.AddScoped<IUserSettingsService, TorreClou.Application.Services.UserSettingsService>();
     builder.Services.AddScoped<IDownloadCleanupService, DownloadCleanupService>();
 
     // Storage connection health + upload failover routing

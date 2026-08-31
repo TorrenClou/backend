@@ -46,6 +46,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
       - Redis__ConnectionString=redis:6379
+      - TORRENT_DOWNLOAD_PATH=${TORRENT_DOWNLOAD_PATH:-/app/downloads}
       - Jwt__Key=${JWT_SECRET}
       - Jwt__Issuer=${JWT_ISSUER:-TorrenClou_API}
       - Jwt__Audience=${JWT_AUDIENCE:-TorrenClou_Client}
@@ -123,8 +124,8 @@ services:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
       - Redis__ConnectionString=redis:6379
+      - TORRENT_DOWNLOAD_PATH=${TORRENT_DOWNLOAD_PATH:-/app/downloads}
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
-      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
       - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
       - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
@@ -156,8 +157,8 @@ services:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
       - Redis__ConnectionString=redis:6379
+      - TORRENT_DOWNLOAD_PATH=${TORRENT_DOWNLOAD_PATH:-/app/downloads}
       - Hangfire__WorkerCount=${HANGFIRE_WORKER_COUNT:-10}
-      - DELETE_AFTER_UPLOAD=${DELETE_AFTER_UPLOAD:-true}
       - UploadRouting__EnableFailover=${UPLOAD_ROUTING_ENABLE_FAILOVER:-true}
       - UploadRouting__MaxFailoverAttempts=${UPLOAD_ROUTING_MAX_FAILOVER_ATTEMPTS:-3}
       - UploadRouting__FailureThreshold=${UPLOAD_ROUTING_FAILURE_THRESHOLD:-3}
