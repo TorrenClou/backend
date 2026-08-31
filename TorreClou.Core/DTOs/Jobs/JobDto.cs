@@ -55,6 +55,14 @@ namespace TorreClou.Core.DTOs.Jobs
         public bool CanRetry => Status.IsFailed() && Status != JobStatus.CANCELLED;
         public bool CanCancel => Status.IsCancellable();
 
+        /// <summary>
+        /// True while the job is waiting on a queue hand-off (QUEUED or PENDING_UPLOAD)
+        /// and can therefore be re-dispatched directly.
+        /// </summary>
+        public bool CanForceStart =>
+            Status == JobStatus.QUEUED ||
+            Status == JobStatus.PENDING_UPLOAD;
+
         /// <summary>True when the destination can still be changed without a retry.</summary>
         public bool CanChangeStorageProfile =>
             Status != JobStatus.COMPLETED &&
