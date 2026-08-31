@@ -38,6 +38,16 @@ namespace TorreClou.API.Controllers
             return Ok(timeline);
         }
 
+        /// <summary>
+        /// Worker capacity and queue depth. Lets the UI say whether a queued job is
+        /// waiting its turn or was dropped, instead of guessing.
+        /// </summary>
+        [HttpGet("queue-status")]
+        public async Task<IActionResult> GetQueueStatus()
+        {
+            return Ok(await jobService.GetQueueStatusAsync());
+        }
+
         [HttpGet("statistics")]
         public async Task<IActionResult> GetJobStatistics()
         {

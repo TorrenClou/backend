@@ -39,6 +39,11 @@ try
     builder.Services.AddHttpClient();
     builder.Services.AddHealthChecks();
 
+    // Sweeps Hangfire records left Processing by workers that were killed rather than
+    // shut down. Registered here alone: the API is always up and single-instance, so
+    // the sweep does not run three times over from each worker.
+    builder.Services.AddHostedService<TorreClou.Infrastructure.Services.HangfireOrphanReaper>();
+
     // CORS
     builder.Services.AddCors(options =>
     {
