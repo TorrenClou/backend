@@ -73,3 +73,30 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
           platforms: linux/amd64
+
+  # Deployment is gated on the build above. Dokploy's autoDeploy is off, so a push
+  # that fails to build never reaches production — the previous deployment keeps
+  # serving. DOKPLOY_DEPLOY_URL is the compose deploy webhook from Dokploy.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Dokploy deployment
+        env:
+          DEPLOY_URL: ${{ secrets.DOKPLOY_DEPLOY_URL }}
+        run: |
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "::error::DOKPLOY_DEPLOY_URL is not set. Add it as a repository secret."
+            exit 1
+          fi
+
+          status=$(curl -sS -o /tmp/deploy.log -w '%{http_code}' -X POST "$DEPLOY_URL")
+          echo "Dokploy responded $status"
+          cat /tmp/deploy.log || true
+
+          # Dokploy returns 200 on accept; anything else means the deploy never started.
+          if [ "$status" != "200" ]; then
+            echo "::error::Dokploy deploy webhook returned $status"
+            exit 1
+          fi
