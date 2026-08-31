@@ -510,6 +510,70 @@ namespace TorreClou.Application.Services
                 profile.Id, health.Reason);
         }
 
+        public async Task ForceStartJobAsync(int jobId, int userId, UserRole? userRole = null)
+        {
+            logger.LogInformation("Force start requested | JobId: {JobId} | UserId: {UserId} | Role: {Role}", jobId, userId, userRole);
+
+            var spec = new BaseSpecification<UserJob>(j => j.Id == jobId);
+            spec.AddInclude(j => j.StorageProfile);
+            spec.AddInclude(j => j.RequestFile);
+            spec.AddInclude(j => j.User);
+
+            var job = await unitOfWork.Repository<UserJob>().GetEntityWithSpec(spec);
+            ValidateJobExistsAndAuthorized(job, userId, userRole, "force start");
+            ValidateJobForForceStart(job!, userId);
+
+            var isUploadPhase = IsUploadPhase(job!.Status);
+
+            if (isUploadPhase && job.StorageProfile == null)
+                throw new BusinessRuleException("StorageInactive", "This job has no storage profile assigned.");
+
+            using var scope = serviceScopeFactory.CreateScope();
+            var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
+            var monitoringApi = JobStorage.Current?.GetMonitoringApi();
+
+            // Drop any half-dispatched Hangfire job first. Enqueueing a second downloader
+            // against the same directory would have two torrent engines writing the same
+            // files, which is worse than staying stuck.
+            await CancelExistingHangfireJobsAsync(job, backgroundJobClient, monitoringApi);
+
+            var previousStatus = job.Status;
+
+            // Enqueue directly rather than re-publishing to the Redis stream: the stream
+            // hand-off is the step that failed, so going around it is the point.
+            var hangfireJobId = isUploadPhase
+                ? await RetryUploadPhaseAsync(job, backgroundJobClient)
+                : await RetryDownloadPhaseAsync(job, backgroundJobClient);
+
+            job.HangfireJobId = hangfireJobId;
+            job.HangfireUploadJobId = null;
+            job.ErrorMessage = null;
+            job.NextRetryAt = null;
+            job.LastHeartbeat = DateTime.UtcNow;
+            job.CurrentState = isUploadPhase ? "Upload re-dispatched by user" : "Download re-dispatched by user";
+
+            // The status does not change — the job was already QUEUED or PENDING_UPLOAD and
+            // still is. Record the event so the timeline shows the manual intervention.
+            await jobStatusService.RecordJobEventAsync(
+                job,
+                isUploadPhase
+                    ? "Upload re-dispatched manually after the queue hand-off was lost."
+                    : "Download re-dispatched manually after the queue hand-off was lost.",
+                StatusChangeSource.User,
+                new
+                {
+                    forceStarted = true,
+                    status = previousStatus.ToString(),
+                    requestedBy = userId,
+                    hangfireJobId
+                });
+
+            await unitOfWork.Complete();
+
+            logger.LogInformation("Force start dispatched | JobId: {JobId} | Status: {Status} | HangfireJobId: {HangfireJobId}",
+                job.Id, previousStatus, hangfireJobId);
+        }
+
         public async Task CancelJobAsync(int jobId, int userId, UserRole? userRole = null)
         {
             logger.LogInformation("Cancel job requested | JobId: {JobId} | UserId: {UserId} | Role: {Role}", jobId, userId, userRole);
@@ -623,6 +687,38 @@ namespace TorreClou.Application.Services
                     "StorageInactive",
                     "The storage profile for this job is no longer active. Retry it against another drive.");
             }
+        }
+
+        /// <summary>
+        /// Force start is only for the two states where a job is waiting on a queue
+        /// hand-off. Everything else either has Hangfire actively working it, has a
+        /// scheduled retry pending, or is terminal — re-dispatching those would duplicate
+        /// work rather than unstick anything.
+        /// </summary>
+        private void ValidateJobForForceStart(UserJob job, int userId)
+        {
+            if (job.Status is JobStatus.QUEUED or JobStatus.PENDING_UPLOAD) return;
+
+            logger.LogWarning("Attempt to force start a job that is not waiting to be picked up | JobId: {JobId} | Status: {Status} | UserId: {UserId}",
+                job.Id, job.Status, userId);
+
+            if (job.Status.IsRetrying())
+            {
+                throw new BusinessRuleException(
+                    "JobRetrying",
+                    "This job already has a retry scheduled. Wait for it, or retry it manually.");
+            }
+
+            if (job.Status.IsActive())
+            {
+                throw new BusinessRuleException(
+                    "JobActive",
+                    $"This job is already {job.Status} and does not need to be started.");
+            }
+
+            throw new BusinessRuleException(
+                "JobNotStartable",
+                $"A {job.Status} job cannot be force started. Use retry instead.");
         }
 
         /// <summary>

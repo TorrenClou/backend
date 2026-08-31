@@ -43,6 +43,17 @@ namespace TorreClou.Core.Interfaces
             bool allowFailover = true,
             UserRole? userRole = null);
 
+        /// <summary>
+        /// Re-dispatches a job stuck waiting to be picked up.
+        ///
+        /// A job sits in QUEUED (or PENDING_UPLOAD) only until a stream worker claims it.
+        /// If that hand-off is lost — the worker was down when the message was published,
+        /// or the consumer acked without processing — nothing ever retries it: the health
+        /// monitor does not watch QUEUED, and RetryJobAsync refuses an active status. This
+        /// enqueues the work directly, bypassing the stream that dropped it.
+        /// </summary>
+        Task ForceStartJobAsync(int jobId, int userId, UserRole? userRole = null);
+
         Task CancelJobAsync(int jobId, int userId, UserRole? userRole = null);
 
         // Worker-facing job state updates

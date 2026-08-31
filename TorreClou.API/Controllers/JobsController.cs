@@ -68,6 +68,18 @@ namespace TorreClou.API.Controllers
             return Ok(job);
         }
 
+        /// <summary>
+        /// Re-dispatches a job stuck waiting to be picked up by a worker. Valid only for
+        /// QUEUED and PENDING_UPLOAD, which are the states that depend on a stream
+        /// hand-off that can be lost.
+        /// </summary>
+        [HttpPost("{id}/force-start")]
+        public async Task<IActionResult> ForceStartJob(int id)
+        {
+            await jobService.ForceStartJobAsync(id, UserId);
+            return Ok();
+        }
+
         [HttpPost("{id}/cancel")]
         public async Task<IActionResult> CancelJob(int id)
         {
