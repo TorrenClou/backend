@@ -16,6 +16,7 @@ namespace TorreClou.Infrastructure.Data
         public DbSet<User> Users { get; set; }
         public DbSet<UserStorageProfile> UserStorageProfiles { get; set; }
         public DbSet<UserOAuthCredential> UserOAuthCredentials { get; set; }
+        public DbSet<UserSettings> UserSettings { get; set; }
 
 
         // --- Job & File Entities ---
@@ -80,6 +81,15 @@ namespace TorreClou.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(p => p.OAuthCredentialId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            // --- User Settings (one row per user, created on first read) ---
+            builder.Entity<UserSettings>()
+                .HasIndex(s => s.UserId).IsUnique();
+            builder.Entity<UserSettings>()
+                .HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // --- OAuth Credentials ---
             builder.Entity<UserOAuthCredential>()

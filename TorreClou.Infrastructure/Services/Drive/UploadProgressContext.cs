@@ -16,6 +16,8 @@ namespace TorreClou.Infrastructure.Services.Drive
 
         // State
         private double _lastDbPercent;
+        private long _lastDbBytes;
+        private DateTime _lastDbTime = DateTime.MinValue;
         private DateTime _lastLogTime = DateTime.MinValue;
         private long _lastLoggedBytes = 0;
         private long _completedBytes;
@@ -25,12 +27,12 @@ namespace TorreClou.Infrastructure.Services.Drive
         private int _storageProfileId;
         private long _totalBytes;
         private ILogger? _logger;
-        private Func<string, double, Task>? _onDbUpdate;
+        private Func<string, double, double, Task>? _onDbUpdate;
         private bool _isConfigured;
 
         public bool IsConfigured => _isConfigured;
 
-        public void Configure(int jobId, int storageProfileId, long totalBytes, ILogger logger, Func<string, double, Task> onDbUpdate)
+        public void Configure(int jobId, int storageProfileId, long totalBytes, ILogger logger, Func<string, double, double, Task> onDbUpdate)
         {
             _jobId = jobId;
             _storageProfileId = storageProfileId;
@@ -41,6 +43,8 @@ namespace TorreClou.Infrastructure.Services.Drive
 
             // Reset state
             _lastDbPercent = 0;
+            _lastDbBytes = 0;
+            _lastDbTime = DateTime.MinValue;
             _lastLogTime = DateTime.MinValue;
             _lastLoggedBytes = 0;
             _completedBytes = 0;
@@ -81,12 +85,20 @@ namespace TorreClou.Infrastructure.Services.Drive
             // If the jump is big enough OR if we just finished a file (good visual checkpoint), update DB
             if (overallPercent - _lastDbPercent >= DbUpdateThresholdPercent || (isFileComplete && overallPercent > _lastDbPercent))
             {
+                // Rate since the previous DB write. The first write has no baseline, so
+                // it reports 0 rather than an arbitrarily large number.
+                var elapsed = _lastDbTime == DateTime.MinValue ? 0 : (now - _lastDbTime).TotalSeconds;
+                var speed = elapsed > 0 ? (currentBytes - _lastDbBytes) / elapsed : 0;
+
                 var stateMessage = $"Uploading: {overallPercent:F1}%";
                 if (_onDbUpdate != null)
                 {
-                    await _onDbUpdate(stateMessage, overallPercent);
+                    await _onDbUpdate(stateMessage, overallPercent, Math.Max(0, speed));
                 }
+
                 _lastDbPercent = overallPercent;
+                _lastDbBytes = currentBytes;
+                _lastDbTime = now;
             }
 
             // 2. Logging Logic (Byte-based threshold like torrent, or on file complete)
