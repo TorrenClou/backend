@@ -11,25 +11,30 @@ namespace TorreClou.Infrastructure.Services
     /// </summary>
     public class DownloadCleanupService(
         IConfiguration configuration,
+        IUserSettingsService userSettingsService,
         ILogger<DownloadCleanupService> logger) : IDownloadCleanupService
     {
         private const string DefaultDownloadPath = "/app/downloads";
         private const string LogPrefix = "[CLEANUP]";
 
-        public Task<long> CleanupAfterUploadAsync(UserJob job, CancellationToken cancellationToken = default)
+        public async Task<long> CleanupAfterUploadAsync(UserJob job, CancellationToken cancellationToken = default)
         {
             try
             {
-                if (!configuration.GetValue("DELETE_AFTER_UPLOAD", true))
+                // Owned by the job's user and edited from the Settings tab, so the choice
+                // survives redeploys instead of living in a worker environment variable.
+                var settings = await userSettingsService.GetOrCreateAsync(job.UserId);
+                if (!settings.DeleteAfterUpload)
                 {
-                    logger.LogDebug("{LogPrefix} Disabled (DELETE_AFTER_UPLOAD=false) | JobId: {JobId}", LogPrefix, job.Id);
-                    return Task.FromResult(0L);
+                    logger.LogDebug("{LogPrefix} Disabled by user settings | JobId: {JobId} | UserId: {UserId}",
+                        LogPrefix, job.Id, job.UserId);
+                    return 0L;
                 }
 
                 if (string.IsNullOrWhiteSpace(job.DownloadPath))
                 {
                     logger.LogDebug("{LogPrefix} No download path recorded | JobId: {JobId}", LogPrefix, job.Id);
-                    return Task.FromResult(0L);
+                    return 0L;
                 }
 
                 var basePath = configuration["TORRENT_DOWNLOAD_PATH"] ?? DefaultDownloadPath;
@@ -44,20 +49,20 @@ namespace TorreClou.Infrastructure.Services
                 {
                     logger.LogError("{LogPrefix} Refusing to delete the download root | JobId: {JobId} | Path: {Path}",
                         LogPrefix, job.Id, fullTarget);
-                    return Task.FromResult(0L);
+                    return 0L;
                 }
 
                 if (!fullTarget.StartsWith(fullBase + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 {
                     logger.LogError("{LogPrefix} Refusing to delete a path outside the download root | JobId: {JobId} | Path: {Path} | Root: {Root}",
                         LogPrefix, job.Id, fullTarget, fullBase);
-                    return Task.FromResult(0L);
+                    return 0L;
                 }
 
                 if (!Directory.Exists(fullTarget))
                 {
                     logger.LogDebug("{LogPrefix} Nothing to remove | JobId: {JobId} | Path: {Path}", LogPrefix, job.Id, fullTarget);
-                    return Task.FromResult(0L);
+                    return 0L;
                 }
 
                 var freedBytes = GetDirectorySize(fullTarget);
@@ -66,7 +71,7 @@ namespace TorreClou.Infrastructure.Services
                 logger.LogInformation("{LogPrefix} Removed download directory | JobId: {JobId} | Path: {Path} | Freed: {FreedMB:F2} MB",
                     LogPrefix, job.Id, fullTarget, freedBytes / (1024.0 * 1024.0));
 
-                return Task.FromResult(freedBytes);
+                return freedBytes;
             }
             catch (Exception ex)
             {
@@ -74,7 +79,7 @@ namespace TorreClou.Infrastructure.Services
                 // would be worse than leaving the files behind for the operator to reap.
                 logger.LogWarning(ex, "{LogPrefix} Failed to remove download directory | JobId: {JobId} | Path: {Path}",
                     LogPrefix, job.Id, job.DownloadPath);
-                return Task.FromResult(0L);
+                return 0L;
             }
         }
 

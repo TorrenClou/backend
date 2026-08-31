@@ -47,7 +47,8 @@ namespace TorreClou.Core.Interfaces
 
         // Worker-facing job state updates
         Task UpdateJobStartedAtAsync(UserJob job);
-        Task UpdateJobProgressAsync(UserJob job, long bytesUploaded);
+        /// <param name="bytesPerSecond">Current upload rate, surfaced in the UI. Pass 0 when unknown.</param>
+        Task UpdateJobProgressAsync(UserJob job, long bytesUploaded, double bytesPerSecond = 0);
         Task UpdateHeartbeatAsync(int jobId);
     }
 }

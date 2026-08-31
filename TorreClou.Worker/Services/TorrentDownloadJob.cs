@@ -467,6 +467,10 @@ namespace TorreClou.Worker.Services
                 job.LastHeartbeat = DateTime.UtcNow;
                 job.CurrentState = stateDescription;
 
+                // MonoTorrent tracks a live rate per manager, so the UI gets the real
+                // transfer rate rather than a delta inferred between polls.
+                job.DownloadSpeedBytesPerSecond = manager.Monitor.DownloadRate;
+
                 await UnitOfWork.Complete();
             }
             catch (Exception ex)
@@ -500,6 +504,8 @@ namespace TorreClou.Worker.Services
                 // Step 1: Update job status to PENDING_UPLOAD
                 job.CurrentState = "Download complete. Starting upload...";
                 job.BytesDownloaded = job.TotalBytes;
+                // Nothing is downloading any more; a stale rate would keep ticking in the UI.
+                job.DownloadSpeedBytesPerSecond = 0;
 
                 await JobStatusService.TransitionJobStatusAsync(
                     job,

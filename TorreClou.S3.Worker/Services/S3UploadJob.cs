@@ -141,6 +141,7 @@ namespace TorreClou.S3.Worker.Services
                 var overallBytesUploaded = 0L;
                 var filesUploaded = 0;
                 var lastProgressUpdate = DateTime.UtcNow;
+                var lastReportedBytes = 0L;
 
                 for (int i = 0; i < filesToUpload.Length; i++)
                 {
@@ -174,7 +175,13 @@ namespace TorreClou.S3.Worker.Services
                     var progressNow = DateTime.UtcNow;
                     if ((progressNow - lastProgressUpdate).TotalSeconds >= ProgressUpdateIntervalSeconds)
                     {
-                        await _jobService.UpdateJobProgressAsync(job, overallBytesUploaded);
+                        // Rate since the previous write, so the UI shows a real transfer
+                        // rate rather than an average over the whole job.
+                        var elapsed = (progressNow - lastProgressUpdate).TotalSeconds;
+                        var speed = elapsed > 0 ? (overallBytesUploaded - lastReportedBytes) / elapsed : 0;
+
+                        await _jobService.UpdateJobProgressAsync(job, overallBytesUploaded, Math.Max(0, speed));
+                        lastReportedBytes = overallBytesUploaded;
 
                         var percent = totalBytes == 0 ? 0 : (overallBytesUploaded / (double)totalBytes) * 100;
                         Logger.LogInformation("{LogPrefix} Progress: {Percent:F1}% | {Uploaded}/{Total} MB",
@@ -186,6 +193,7 @@ namespace TorreClou.S3.Worker.Services
 
                 var duration = (DateTime.UtcNow - uploadStartTime).TotalSeconds;
                 job.CompletedAt = DateTime.UtcNow;
+                job.UploadSpeedBytesPerSecond = 0;
                 job.CurrentState = "S3 upload completed successfully";
                 job.NextRetryAt = null;
 
