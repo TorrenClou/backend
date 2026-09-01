@@ -1,6 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using TorreClou.Application.Services;
 using TorreClou.Application.Services.OAuth;
+using TorreClou.Application.Services.Setup;
 using TorreClou.Application.Services.Storage;
 using TorreClou.Application.Services.Torrent;
 using TorreClou.Core.Interfaces;
@@ -25,6 +26,8 @@ namespace TorreClou.Application.Extensions
             services.AddScoped<IS3StorageService, S3StorageService>();
             services.AddScoped<IUserService, UserService>();
             services.AddScoped<IUserSettingsService, UserSettingsService>();
+
+            services.AddSingleton<IPasswordHasher, PasswordHasherService>();
             services.AddScoped<IOAuthService, OAuthService>();
 
             return services;
