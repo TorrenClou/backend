@@ -34,5 +34,11 @@ namespace TorreClou.Application.Services
         {
             return await unitOfWork.Repository<User>().GetByIdAsync(userId);
         }
+
+        public async Task SetPasswordHashAsync(User user, string passwordHash)
+        {
+            user.PasswordHash = passwordHash;
+            await unitOfWork.Complete();
+        }
     }
 }
