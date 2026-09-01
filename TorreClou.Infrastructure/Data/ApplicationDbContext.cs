@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using TorreClou.Core.Entities;
 using TorreClou.Core.Entities.Jobs;
 using TorreClou.Core.Entities.Torrents;
@@ -17,6 +17,9 @@ namespace TorreClou.Infrastructure.Data
         public DbSet<UserStorageProfile> UserStorageProfiles { get; set; }
         public DbSet<UserOAuthCredential> UserOAuthCredentials { get; set; }
         public DbSet<UserSettings> UserSettings { get; set; }
+
+        /// <summary>Instance-wide configuration. Exactly one row.</summary>
+        public DbSet<SystemSettings> SystemSettings { get; set; }
 
 
         // --- Job & File Entities ---
