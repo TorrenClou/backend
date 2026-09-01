@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TorreClou.Core.DTOs.Storage;
 using TorreClou.Core.DTOs.Storage.GoogleDrive;
@@ -66,8 +66,29 @@ namespace TorreClou.API.Controllers.Storage
         [AllowAnonymous]
         public async Task<IActionResult> GoogleDriveCallback([FromQuery] string code, [FromQuery] string state)
         {
-            var redirectUrl = await googleDriveService.GetGoogleCallback(code, state);
+            var redirectUrl = await googleDriveService.GetGoogleCallback(code, state, ResolveRequestOrigin());
             return Redirect(redirectUrl);
+        }
+
+        /// <summary>
+        /// The public origin this request arrived through.
+        ///
+        /// The registered redirect URI points at the frontend, which proxies the callback
+        /// to the API and forwards the original host, so these headers name the address the
+        /// user is on. That is what lets the instance send the browser back to the right
+        /// place without being configured with its own URL.
+        /// </summary>
+        private string ResolveRequestOrigin()
+        {
+            // Comma-separated when several proxies have appended to it; the first entry is
+            // the original client-facing host.
+            var host = Request.Headers["X-Forwarded-Host"].FirstOrDefault()?.Split(',')[0].Trim();
+            var scheme = Request.Headers["X-Forwarded-Proto"].FirstOrDefault()?.Split(',')[0].Trim();
+
+            if (string.IsNullOrEmpty(host)) host = Request.Host.Value;
+            if (string.IsNullOrEmpty(scheme)) scheme = Request.Scheme;
+
+            return string.IsNullOrEmpty(host) ? string.Empty : $"{scheme}://{host}";
         }
     }
 }
