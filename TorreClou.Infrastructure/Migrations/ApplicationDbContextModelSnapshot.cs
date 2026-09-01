@@ -308,6 +308,58 @@ namespace TorreClou.Infrastructure.Migrations
                     b.ToTable("UserStorageProfiles", "dev");
                 });
 
+            modelBuilder.Entity("TorreClou.Core.Entities.SystemSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("DegradedFreeQuotaRatio")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("EnableFailover")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("EnablePrometheus")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("EnableTracing")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("FailureThreshold")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("HangfireWorkerCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("HealthCacheTtlSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxFailoverAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProbeTimeoutSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("QuotaHeadroomRatio")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime?>("SetupCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SystemSettings", "dev");
+                });
+
             modelBuilder.Entity("TorreClou.Core.Entities.Torrents.RequestedFile", b =>
                 {
                     b.Property<int>("Id")
@@ -374,6 +426,9 @@ namespace TorreClou.Infrastructure.Migrations
 
                     b.Property<string>("FullName")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordHash")
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAt")

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using TorreClou.Core.DTOs.Auth;
 using TorreClou.Core.Interfaces;
 
@@ -9,7 +9,8 @@ namespace TorreClou.API.Controllers;
 public class AuthController(IAuthService authService) : BaseApiController
 {
     /// <summary>
-    /// Login with email and password (configured in environment variables)
+    /// Login with email and password. Credentials are set by the first-run setup
+    /// wizard and stored hashed on the user row.
     /// </summary>
     [HttpPost("login")]
     public async Task<IActionResult> LoginAsync([FromBody] LoginRequestDto request)

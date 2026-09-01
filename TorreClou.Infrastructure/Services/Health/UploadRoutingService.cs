@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorreClou.Core.DTOs.Storage;
 using TorreClou.Core.Entities.Jobs;
@@ -25,7 +25,9 @@ namespace TorreClou.Infrastructure.Services.Health
         IStorageProfileHealthService healthService,
         IRedisCacheService redisCache,
         IJobStatusService jobStatusService,
-        IOptions<UploadRoutingOptions> options,
+        // Snapshot, not IOptions: these values now come from the Settings tab, and a
+        // snapshot is rebuilt per scope so a change is picked up without a restart.
+        IOptionsSnapshot<UploadRoutingOptions> options,
         ILogger<UploadRoutingService> logger) : IUploadRoutingService
     {
         private readonly UploadRoutingOptions _options = options.Value;

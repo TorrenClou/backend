@@ -1,4 +1,4 @@
-using TorreClou.Core.DTOs.OAuth;
+﻿using TorreClou.Core.DTOs.OAuth;
 using TorreClou.Core.DTOs.Storage.GoogleDrive;
 
 namespace TorreClou.Core.Interfaces
@@ -32,6 +32,12 @@ namespace TorreClou.Core.Interfaces
         /// Handle OAuth callback from Google and redirect to frontend.
         /// Always returns a redirect URL, never throws.
         /// </summary>
-        Task<string> GetGoogleCallback(string code, string state);
+        /// <param name="frontendOrigin">
+        /// Origin the callback arrived through, as observed by the API. Google redirects the
+        /// browser to the frontend, which proxies the request here, so this is the address
+        /// the user is actually on — which is why the instance does not need to be told its
+        /// own URL. Ignored when FRONTEND_URL is set explicitly.
+        /// </param>
+        Task<string> GetGoogleCallback(string code, string state, string? frontendOrigin = null);
     }
 }
