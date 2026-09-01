@@ -1,4 +1,4 @@
-using System.Web;
+﻿using System.Web;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TorreClou.Core.DTOs.OAuth;
@@ -28,10 +28,9 @@ namespace TorreClou.Application.Services.Google_Drive
         public Task<string> ReauthenticateAsync(int userId, int profileId)
             => googleDriveAuthService.ReauthenticateAsync(userId, profileId);
 
-        public async Task<string> GetGoogleCallback(string code, string state)
+        public async Task<string> GetGoogleCallback(string code, string state, string? frontendOrigin = null)
         {
-            var frontendUrl = (configuration["FRONTEND_URL"] ?? "http://localhost:47100").TrimEnd('/');
-            var redirectBase = $"{frontendUrl}/storage";
+            var redirectBase = $"{ResolveFrontendUrl(frontendOrigin)}/storage";
 
             if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
                 return $"{redirectBase}?error=INVALID_REQUEST&message={HttpUtility.UrlEncode("Missing code or state parameter")}";
@@ -50,6 +49,30 @@ namespace TorreClou.Application.Services.Google_Drive
                 logger.LogError(ex, "Unhandled exception in GetGoogleCallback");
                 return $"{redirectBase}?error=InternalError&message={HttpUtility.UrlEncode("An unexpected error occurred")}";
             }
+        }
+
+        /// <summary>
+        /// Where to send the browser once Google has handed the code back.
+        ///
+        /// Configuration wins, for deployments behind a proxy that rewrites the host. With
+        /// nothing configured the origin the callback came in on is used, which is what lets
+        /// a container run without being told its own public address. Only the origin is
+        /// taken from the request — never a path — so a forged Host header can at worst
+        /// redirect the forger's own browser.
+        /// </summary>
+        private string ResolveFrontendUrl(string? frontendOrigin)
+        {
+            var configured = configuration["FRONTEND_URL"];
+            if (!string.IsNullOrWhiteSpace(configured)) return configured.TrimEnd('/');
+
+            if (!string.IsNullOrWhiteSpace(frontendOrigin)
+                && Uri.TryCreate(frontendOrigin, UriKind.Absolute, out var uri)
+                && uri.Scheme is "http" or "https")
+            {
+                return $"{uri.Scheme}://{uri.Authority}";
+            }
+
+            return "http://localhost:47100";
         }
     }
 }
