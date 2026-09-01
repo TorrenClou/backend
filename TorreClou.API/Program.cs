@@ -1,4 +1,4 @@
-using Hangfire;
+﻿using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
@@ -136,7 +136,13 @@ try
         DashboardTitle = "TorreClou Jobs"
     });
 
-    app.UseOpenTelemetryPrometheusScrapingEndpoint();
+    // Only when the exporter was actually registered. Mapping the scraping endpoint
+    // without it throws at startup, which turned "Prometheus off" — now a setting a user
+    // can toggle — into a container that will not boot.
+    if (builder.Configuration.GetSection("Observability").GetValue("EnablePrometheus", true))
+    {
+        app.UseOpenTelemetryPrometheusScrapingEndpoint();
+    }
     app.MapHealthChecks("/health").AllowAnonymous();
     app.MapControllers();
 
