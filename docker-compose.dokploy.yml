@@ -60,7 +60,6 @@ services:
       - Jwt__Key=${JWT_SECRET:?JWT_SECRET is required}
       - Jwt__Issuer=${JWT_ISSUER:-TorrenClou_API}
       - Jwt__Audience=${JWT_AUDIENCE:-TorrenClou_Client}
-      - Google__ClientId=${GOOGLE_CLIENT_ID:-}
       - ADMIN_EMAIL=${ADMIN_EMAIL:?ADMIN_EMAIL is required}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
