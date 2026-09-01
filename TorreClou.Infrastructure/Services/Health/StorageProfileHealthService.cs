@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorreClou.Core.DTOs.Storage;
@@ -20,7 +20,9 @@ namespace TorreClou.Infrastructure.Services.Health
         IUnitOfWork unitOfWork,
         IEnumerable<IStorageHealthProbe> probes,
         IRedisCacheService redisCache,
-        IOptions<UploadRoutingOptions> options,
+        // Snapshot, not IOptions: these values now come from the Settings tab, and a
+        // snapshot is rebuilt per scope so a change is picked up without a restart.
+        IOptionsSnapshot<UploadRoutingOptions> options,
         ILogger<StorageProfileHealthService> logger) : IStorageProfileHealthService
     {
         private readonly UploadRoutingOptions _options = options.Value;

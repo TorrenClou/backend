@@ -1,6 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using TorreClou.Application.Services;
 using TorreClou.Application.Services.OAuth;
+using TorreClou.Application.Services.Setup;
 using TorreClou.Application.Services.Storage;
 using TorreClou.Application.Services.Torrent;
 using TorreClou.Core.Interfaces;
@@ -25,6 +26,14 @@ namespace TorreClou.Application.Extensions
             services.AddScoped<IS3StorageService, S3StorageService>();
             services.AddScoped<IUserService, UserService>();
             services.AddScoped<IUserSettingsService, UserSettingsService>();
+
+            // Instance-wide settings and first-run setup. The cache is a singleton so every
+            // scope in the process shares one copy of a row that is read constantly and
+            // written rarely.
+            services.AddSingleton<SystemSettingsCache>();
+            services.AddSingleton<IPasswordHasher, PasswordHasherService>();
+            services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+            services.AddScoped<ISetupService, SetupService>();
             services.AddScoped<IOAuthService, OAuthService>();
 
             return services;
