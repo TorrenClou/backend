@@ -50,7 +50,6 @@ services:
       - Jwt__Key=${JWT_SECRET}
       - Jwt__Issuer=${JWT_ISSUER:-TorrenClou_API}
       - Jwt__Audience=${JWT_AUDIENCE:-TorrenClou_Client}
-      - Google__ClientId=${GOOGLE_CLIENT_ID}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gitnasr.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-P@ssword123!}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
