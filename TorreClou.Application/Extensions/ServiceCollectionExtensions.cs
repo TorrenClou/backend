@@ -27,11 +27,13 @@ namespace TorreClou.Application.Extensions
             services.AddScoped<IUserService, UserService>();
             services.AddScoped<IUserSettingsService, UserSettingsService>();
 
-            // The settings cache is a singleton so every scope in the process shares one
-            // copy of a row that is read constantly and written rarely.
+            // Instance-wide settings and first-run setup. The cache is a singleton so every
+            // scope in the process shares one copy of a row that is read constantly and
+            // written rarely.
             services.AddSingleton<SystemSettingsCache>();
             services.AddSingleton<IPasswordHasher, PasswordHasherService>();
             services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+            services.AddScoped<ISetupService, SetupService>();
             services.AddScoped<IOAuthService, OAuthService>();
 
             return services;
