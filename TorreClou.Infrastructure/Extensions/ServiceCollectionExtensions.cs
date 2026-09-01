@@ -1,9 +1,11 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using TorreClou.Core.Interfaces;
 using TorreClou.Infrastructure.Services;
 using TorreClou.Application.Services.Google_Drive;
+using TorreClou.Application.Services.Setup;
 using TorreClou.Infrastructure.Services.Drive;
 using TorreClou.Infrastructure.Services.Handlers;
 using TorreClou.Infrastructure.Services.Health;
@@ -77,8 +79,19 @@ namespace TorreClou.Infrastructure.Extensions
             this IServiceCollection services,
             IConfiguration configuration)
         {
+            // Configuration first, then the database on top: a value saved in the Settings
+            // tab overrides the same value supplied as an environment variable.
             services.Configure<UploadRoutingOptions>(
                 configuration.GetSection(UploadRoutingOptions.SectionName));
+
+            services.AddScoped<IConfigureOptions<UploadRoutingOptions>, SystemSettingsRoutingOptions>();
+            services.AddHostedService<SystemSettingsRefresher>();
+
+            // The settings row is what the override above reads. Registered here rather than
+            // per-host so every process that routes uploads has it: the API gets it from
+            // AddApplicationServices, the two upload workers only from this call.
+            services.TryAddSingleton<SystemSettingsCache>();
+            services.TryAddScoped<ISystemSettingsService, SystemSettingsService>();
 
             // Probe dependencies. TryAdd keeps this safe in hosts (the API, the Drive
             // worker) that already register them; the S3 worker gets them from here.
