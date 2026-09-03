@@ -45,6 +45,24 @@ jobs:
       - name: Build
         run: dotnet build TorreClou.sln -c Release --no-restore
 
+      # Generated from the annotated option types rather than written by hand.
+      # Running it on every build means a change to the configuration surface
+      # cannot pass CI while silently failing to generate.
+      - name: Export the configuration schema
+        run: |
+          set -euo pipefail
+          dotnet TorreClou.API/bin/Release/net9.0/TorreClou.API.dll --dump-config-schema > config-schema.json
+          entries=$(jq '.entries | length' config-schema.json)
+          echo "Documented ${entries} configuration values."
+          jq -e '.entries | length > 0' config-schema.json > /dev/null
+
+      - name: Upload the configuration schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-schema
+          path: config-schema.json
+          if-no-files-found: error
+
   images:
     name: ${{ matrix.service.name }}
     needs: compile
@@ -210,6 +228,12 @@ jobs:
         with:
           fetch-depth: 2
 
+      # Needed to regenerate the configuration schema below. Only the release
+      # path uses it, so it is set up here rather than in every run.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
       - name: Is this a release commit?
         id: release
         run: |
@@ -233,6 +257,19 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The docs site reads this from the release rather than from main, so the
+      # published reference always describes a released build rather than
+      # whatever is currently on the branch.
+      - name: Attach the configuration schema to the release
+        if: steps.release.outputs.is_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dotnet build TorreClou.sln -c Release
+          dotnet TorreClou.API/bin/Release/net9.0/TorreClou.API.dll --dump-config-schema > config-schema.json
+          gh release upload "v${{ steps.release.outputs.version }}" config-schema.json --clobber
 
       - name: Apply semver tags
         if: steps.release.outputs.is_release == 'true'

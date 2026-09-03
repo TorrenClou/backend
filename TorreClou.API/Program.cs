@@ -10,6 +10,20 @@ using TorreClou.Infrastructure.Services;
 
 const string ServiceName = "torreclou-api";
 
+// Emits the configuration reference and exits, before any service is touched.
+//
+// The reference used to be written by hand in five places and no two agreed on
+// which variables existed, which were required, or what the defaults were. It is
+// now derived from the annotated option types, so CI can publish it and the docs
+// site can render something the code actually implements.
+//
+//   dotnet run --project TorreClou.API -- --dump-config-schema
+if (args.Contains("--dump-config-schema"))
+{
+    Console.WriteLine(TorreClou.Core.Configuration.ConfigSchema.ToJson());
+    return;
+}
+
 // Bootstrap logger for startup errors only
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
