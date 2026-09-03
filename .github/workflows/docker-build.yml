@@ -15,6 +15,11 @@ on:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      retag_version:
+        description: "Apply semver tags for this version to the current :latest, e.g. 2.0.0. For repairing a release whose tagging failed."
+        required: false
+        default: ""
 
 concurrency:
   group: build-${{ github.ref }}
@@ -233,26 +238,34 @@ jobs:
   # tested.
   tag-release:
     needs: images
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      # Needed to regenerate the configuration schema below. Only the release
-      # path uses it, so it is set up here rather than in every run.
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "9.0.x"
-
       - name: Is this a release commit?
         id: release
         run: |
           set -euo pipefail
+
+          # workflow_dispatch with retag_version repairs a release whose tagging
+          # failed, without inventing a new version to get it done.
+          manual="${{ github.event.inputs.retag_version }}"
+          if [ -n "$manual" ]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=${manual}" >> "$GITHUB_OUTPUT"
+            echo "major_minor=${manual%.*}" >> "$GITHUB_OUTPUT"
+            echo "Manual retag of ${manual}"
+            exit 0
+          fi
+
           # Release Please touches the manifest and nothing else does.
           if git diff --name-only HEAD^ HEAD | grep -qx '.release-please-manifest.json'; then
             version=$(jq -r '.["."]' .release-please-manifest.json)
@@ -273,19 +286,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The docs site reads this from the release rather than from main, so the
-      # published reference always describes a released build rather than
-      # whatever is currently on the branch.
-      - name: Attach the configuration schema to the release
-        if: steps.release.outputs.is_release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          dotnet build TorrenClou.sln -c Release
-          dotnet TorrenClou.API/bin/Release/net9.0/TorrenClou.API.dll --dump-config-schema > config-schema.json
-          gh release upload "v${{ steps.release.outputs.version }}" config-schema.json --clobber
-
+      # Tags first. This used to run after the schema upload, and when that
+      # upload failed with a 403 the semver tags were skipped entirely — so
+      # v2.0.0 released with no :2.0.0 images. An optional documentation asset
+      # must not be able to block the images.
       - name: Apply semver tags
         if: steps.release.outputs.is_release == 'true'
         run: |
@@ -295,14 +299,32 @@ jobs:
           prefix=$(echo "${{ env.IMAGE_PREFIX }}" | tr "[:upper:]" "[:lower:]")
           for service in api worker gdrive-worker s3-worker; do
             # IMAGE_PREFIX is github.repository, which preserves the owner's
-            # casing ("TorrenClou/backend"), and Docker rejects an uppercase
-            # repository name. The matrix build above never hits this because
-            # docker/metadata-action lowercases for you; this does not.
-            # The identical bug failed the first frontend release.
+            # casing, and Docker rejects an uppercase repository name.
             image="${{ env.REGISTRY }}/${prefix}/${service}"
+            source_tag="${SOURCE_TAG:-sha-${{ github.sha }}}"
             echo "Tagging ${image} as ${version} and ${major_minor}"
-            docker buildx imagetools create \
-              --tag "${image}:${version}" \
-              --tag "${image}:${major_minor}" \
-              "${image}:sha-${{ github.sha }}"
+            docker buildx imagetools create               --tag "${image}:${version}"               --tag "${image}:${major_minor}"               "${image}:${source_tag}"
           done
+        env:
+          # A manual retag has no build of its own to point at, so it promotes
+          # whatever :latest currently is.
+          SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'latest' || '' }}
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.release.outputs.is_release == 'true'
+        with:
+          dotnet-version: "9.0.x"
+
+      # Best effort, and deliberately after the tags. The docs site falls back
+      # to the previous release's schema if this is missing, which is a much
+      # smaller problem than a release with no versioned images.
+      - name: Attach the configuration schema to the release
+        if: steps.release.outputs.is_release == 'true' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dotnet build TorrenClou.sln -c Release
+          dotnet TorrenClou.API/bin/Release/net9.0/TorrenClou.API.dll --dump-config-schema > config-schema.json
+          gh release upload "v${{ steps.release.outputs.version }}" config-schema.json --clobber
