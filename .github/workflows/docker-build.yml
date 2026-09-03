@@ -240,8 +240,14 @@ jobs:
           set -euo pipefail
           version="${{ steps.release.outputs.version }}"
           major_minor="${{ steps.release.outputs.major_minor }}"
+          prefix=$(echo "${{ env.IMAGE_PREFIX }}" | tr "[:upper:]" "[:lower:]")
           for service in api worker gdrive-worker s3-worker; do
-            image="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${service}"
+            # IMAGE_PREFIX is github.repository, which preserves the owner's
+            # casing ("TorrenClou/backend"), and Docker rejects an uppercase
+            # repository name. The matrix build above never hits this because
+            # docker/metadata-action lowercases for you; this does not.
+            # The identical bug failed the first frontend release.
+            image="${{ env.REGISTRY }}/${prefix}/${service}"
             echo "Tagging ${image} as ${version} and ${major_minor}"
             docker buildx imagetools create \
               --tag "${image}:${version}" \
