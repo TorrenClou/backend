@@ -1,5 +1,5 @@
 # ============================================================
-# TorreClou — Dokploy deployment
+# TorrenClou — Dokploy deployment
 # ============================================================
 # Differences from the local docker-compose.yml:
 #   * No published ports. Traefik (managed by Dokploy) routes to the api
@@ -47,7 +47,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: TorreClou.API/Dockerfile
+      dockerfile: TorrenClou.API/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       # Listen on 3000 rather than the image default of 8080: Dokploy's generated
@@ -91,7 +91,7 @@ services:
   torrent-worker:
     build:
       context: .
-      dockerfile: TorreClou.Worker/Dockerfile
+      dockerfile: TorrenClou.Worker/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD}
@@ -119,7 +119,7 @@ services:
   googledrive-worker:
     build:
       context: .
-      dockerfile: TorreClou.GoogleDrive.Worker/Dockerfile
+      dockerfile: TorrenClou.GoogleDrive.Worker/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD}
@@ -147,7 +147,7 @@ services:
   s3-worker:
     build:
       context: .
-      dockerfile: TorreClou.S3.Worker/Dockerfile
+      dockerfile: TorrenClou.S3.Worker/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD}
