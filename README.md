@@ -18,14 +18,14 @@ The .NET 9 API and background workers behind
 Clean Architecture, so the domain does not depend on frameworks or databases.
 
 ```
-TorreClou.sln
-├── TorreClou.Core/                 # Domain entities, interfaces, enums, options
-├── TorreClou.Application/          # Use cases, DTOs, validators
-├── TorreClou.Infrastructure/       # EF Core, Redis, Hangfire, external clients
-├── TorreClou.API/                  # ASP.NET Core controllers, middleware, DI
-├── TorreClou.Worker/               # Torrent downloads
-├── TorreClou.GoogleDrive.Worker/   # Google Drive uploads
-└── TorreClou.S3.Worker/            # S3 uploads
+TorrenClou.sln
+├── TorrenClou.Core/                 # Domain entities, interfaces, enums, options
+├── TorrenClou.Application/          # Use cases, DTOs, validators
+├── TorrenClou.Infrastructure/       # EF Core, Redis, Hangfire, external clients
+├── TorrenClou.API/                  # ASP.NET Core controllers, middleware, DI
+├── TorrenClou.Worker/               # Torrent downloads
+├── TorrenClou.GoogleDrive.Worker/   # Google Drive uploads
+└── TorrenClou.S3.Worker/            # S3 uploads
 ```
 
 **Dependency flow:** `API / Workers` → `Application` → `Core` ← `Infrastructure`
@@ -33,7 +33,7 @@ TorreClou.sln
 Each worker is an independent process sharing the same PostgreSQL and Redis as
 the API, pulling from its own Hangfire queue, and scalable on its own.
 
-> The projects are still named `TorreClou.*` while the product is `TorrenClou`.
+> The projects are still named `TorrenClou.*` while the product is `TorrenClou`.
 > That rename is tracked separately — it touches every namespace and assembly,
 > so it lands in one atomic change rather than piecemeal.
 
@@ -46,7 +46,7 @@ Requires the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and
 git clone https://github.com/TorrenClou/backend.git
 cd backend
 docker compose up -d postgres redis
-dotnet run --project TorreClou.API
+dotnet run --project TorrenClou.API
 ```
 
 The API listens on `http://localhost:47200`. No `.env` is needed — compose and
@@ -56,9 +56,9 @@ the app both fall back to working development defaults. Copy `.env.example` to
 Workers run the same way, in their own terminals:
 
 ```bash
-dotnet run --project TorreClou.Worker
-dotnet run --project TorreClou.GoogleDrive.Worker
-dotnet run --project TorreClou.S3.Worker
+dotnet run --project TorrenClou.Worker
+dotnet run --project TorrenClou.GoogleDrive.Worker
+dotnet run --project TorrenClou.S3.Worker
 ```
 
 The API reference and every configuration key are documented at
