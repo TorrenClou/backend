@@ -65,6 +65,55 @@ try
         var services = scope.ServiceProvider;
         var logger = services.GetRequiredService<ILogger<Program>>();
 
+        // Rollback safety.
+        //
+        // Users are told they can pin an older image and roll back. That is only
+        // true if an older build refuses to run against a schema written by a
+        // newer one. Without this check the app starts happily against a
+        // database it does not understand and fails later, during real work, in
+        // ways that look like data corruption rather than a bad rollback.
+        //
+        // Best effort: if the database cannot be read at all we say so and carry
+        // on, because the migration step below will fail with a better message.
+        try
+        {
+            var schemaContext = services.GetRequiredService<TorreClou.Infrastructure.Data.ApplicationDbContext>();
+            var appliedMigrations = await schemaContext.Database.GetAppliedMigrationsAsync();
+            var knownMigrations = schemaContext.Database.GetMigrations();
+            var unknownMigrations = appliedMigrations.Except(knownMigrations).ToList();
+
+            if (unknownMigrations.Count > 0)
+            {
+                var allowSchemaAhead = app.Configuration.GetValue<bool>("ALLOW_SCHEMA_AHEAD");
+
+                logger.LogError(
+                    "The database has {Count} migration(s) this build does not know about: {Migrations}. " +
+                    "This usually means you rolled back to an older image past a schema change. " +
+                    "Restore the database backup taken before the upgrade, or set ALLOW_SCHEMA_AHEAD=true " +
+                    "to start anyway and accept the risk.",
+                    unknownMigrations.Count,
+                    string.Join(", ", unknownMigrations));
+
+                if (!allowSchemaAhead)
+                {
+                    throw new InvalidOperationException(
+                        $"Database schema is ahead of this build ({string.Join(", ", unknownMigrations)}). " +
+                        "Refusing to start. Set ALLOW_SCHEMA_AHEAD=true to override.");
+                }
+
+                logger.LogWarning(
+                    "ALLOW_SCHEMA_AHEAD is set. Starting against a newer schema anyway.");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not compare the database schema against this build");
+        }
+
         if (!applyMigrations)
         {
             logger.LogInformation("Database migrations skipped (APPLY_MIGRATIONS=false)");

@@ -219,18 +219,9 @@ namespace TorreClou.Infrastructure.Services
             return detailed;
         }
 
-        private static string GetVersion()
-        {
-            try
-            {
-                var assembly = System.Reflection.Assembly.GetEntryAssembly();
-                var version = assembly?.GetName().Version;
-                return version?.ToString() ?? "1.0.0";
-            }
-            catch
-            {
-                return "1.0.0";
-            }
-        }
+        // Was a local reflection helper that fell back to the literal "1.0.0".
+        // Since nothing set a version, that fallback was what every install
+        // actually reported. TorreClou.Core.BuildInfo now reads the real one.
+        private static string GetVersion() => TorreClou.Core.BuildInfo.Version;
     }
 }

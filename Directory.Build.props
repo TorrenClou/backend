@@ -1,0 +1,36 @@
+<Project>
+
+  <!--
+    Shared by every project in the solution.
+
+    The version lives here rather than in a VERSION file nothing read. Before
+    this, no project set <Version>, so every assembly reported 1.0.0.0 and the
+    version surfaced at /api/health/ready was a default rather than a fact.
+
+    Release Please owns the number below. The marker comment is how it finds the
+    line, so do not remove it or reformat that element onto several lines.
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version> <!-- x-release-please-version -->
+    <Product>TorrenClou</Product>
+    <Company>TorrenClou</Company>
+    <Authors>TorrenClou Contributors</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/TorrenClou/backend</RepositoryUrl>
+  </PropertyGroup>
+
+  <!--
+    Stamped by CI so a running container can say exactly what it was built from.
+    Both are optional: a local `dotnet run` simply reports them as unknown.
+  -->
+  <PropertyGroup>
+    <BuildSha Condition="'$(BuildSha)' == ''">$(GITHUB_SHA)</BuildSha>
+    <BuildTime Condition="'$(BuildTime)' == ''"></BuildTime>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildSha" Value="$(BuildSha)" Condition="'$(BuildSha)' != ''" />
+    <AssemblyMetadata Include="BuildTime" Value="$(BuildTime)" Condition="'$(BuildTime)' != ''" />
+  </ItemGroup>
+
+</Project>
