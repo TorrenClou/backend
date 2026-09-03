@@ -71,7 +71,9 @@ namespace TorreClou.Infrastructure.Extensions
                 {
                     tracing.SetResourceBuilder(resourceBuilder)
                            .AddHttpClientInstrumentation()
-                           .AddEntityFrameworkCoreInstrumentation(o => o.SetDbStatementForText = true)
+                           // SetDbStatementForText was removed in 1.18.0: the query text is
+                           // now captured by default. Parameter values stay opt-in (and off).
+                           .AddEntityFrameworkCoreInstrumentation()
                            .AddRedisInstrumentation();
 
                     if (includeAspNetCoreInstrumentation)
