@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: torrenclo_postgres
+    container_name: torrenclou_postgres
     command: postgres -c max_connections=200
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-torrenclo}
@@ -22,7 +22,7 @@ services:
   # Redis Cache & Job State
   redis:
     image: redis:7-alpine
-    container_name: torrenclo_redis
+    container_name: torrenclou_redis
     ports:
       - "${REDIS_PORT:-47400}:6379"
     volumes:
@@ -38,8 +38,8 @@ services:
   api:
     build:
       context: .
-      dockerfile: TorreClou.API/Dockerfile
-    container_name: torrenclo_api
+      dockerfile: TorrenClou.API/Dockerfile
+    container_name: torrenclou_api
     ports:
       - "${API_PORT:-47200}:8080"
     environment:
@@ -84,8 +84,8 @@ services:
   torrent-worker:
     build:
       context: .
-      dockerfile: TorreClou.Worker/Dockerfile
-    container_name: torrenclo_torrent_worker
+      dockerfile: TorrenClou.Worker/Dockerfile
+    container_name: torrenclou_torrent_worker
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
@@ -117,8 +117,8 @@ services:
   googledrive-worker:
     build:
       context: .
-      dockerfile: TorreClou.GoogleDrive.Worker/Dockerfile
-    container_name: torrenclo_googledrive_worker
+      dockerfile: TorrenClou.GoogleDrive.Worker/Dockerfile
+    container_name: torrenclou_googledrive_worker
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
@@ -150,8 +150,8 @@ services:
   s3-worker:
     build:
       context: .
-      dockerfile: TorreClou.S3.Worker/Dockerfile
-    container_name: torrenclo_s3_worker
+      dockerfile: TorrenClou.S3.Worker/Dockerfile
+    container_name: torrenclou_s3_worker
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-torrenclo};Username=${POSTGRES_USER:-torrenclo_user};Password=${POSTGRES_PASSWORD:-changeme}
@@ -182,7 +182,7 @@ services:
   # Loki - Log aggregation
   loki:
     image: grafana/loki:2.9.3
-    container_name: torrenclo_loki
+    container_name: torrenclou_loki
     ports:
       - "47700:3100"
     command: -config.file=/etc/loki/local-config.yaml
@@ -198,7 +198,7 @@ services:
   # Prometheus - Metrics collection
   prometheus:
     image: prom/prometheus:v2.48.1
-    container_name: torrenclo_prometheus
+    container_name: torrenclou_prometheus
     ports:
       - "47600:9090"
     command:
@@ -217,7 +217,7 @@ services:
   # Grafana - Visualization dashboard
   grafana:
     image: grafana/grafana:10.2.3
-    container_name: torrenclo_grafana
+    container_name: torrenclou_grafana
     ports:
       - "47500:3000"
     environment:

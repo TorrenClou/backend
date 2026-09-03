@@ -40,10 +40,10 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: Restore
-        run: dotnet restore TorreClou.sln
+        run: dotnet restore TorrenClou.sln
 
       - name: Build
-        run: dotnet build TorreClou.sln -c Release --no-restore
+        run: dotnet build TorrenClou.sln -c Release --no-restore
 
       # Generated from the annotated option types rather than written by hand.
       # Running it on every build means a change to the configuration surface
@@ -51,7 +51,7 @@ jobs:
       - name: Export the configuration schema
         run: |
           set -euo pipefail
-          dotnet TorreClou.API/bin/Release/net9.0/TorreClou.API.dll --dump-config-schema > config-schema.json
+          dotnet TorrenClou.API/bin/Release/net9.0/TorrenClou.API.dll --dump-config-schema > config-schema.json
           entries=$(jq '.entries | length' config-schema.json)
           echo "Documented ${entries} configuration values."
           jq -e '.entries | length > 0' config-schema.json > /dev/null
@@ -77,20 +77,20 @@ jobs:
         service:
           - name: api
             context: .
-            dockerfile: TorreClou.API/Dockerfile
+            dockerfile: TorrenClou.API/Dockerfile
           - name: worker
             context: .
-            dockerfile: TorreClou.Worker/Dockerfile
+            dockerfile: TorrenClou.Worker/Dockerfile
           - name: gdrive-worker
             context: .
-            dockerfile: TorreClou.GoogleDrive.Worker/Dockerfile
+            dockerfile: TorrenClou.GoogleDrive.Worker/Dockerfile
           # s3-worker was missing from this matrix, so its image was never
-          # published even though TorreClou.S3.Worker/Dockerfile has always
+          # published even though TorrenClou.S3.Worker/Dockerfile has always
           # existed. Any deployment splitting the workers into separate
           # services had no image to pull.
           - name: s3-worker
             context: .
-            dockerfile: TorreClou.S3.Worker/Dockerfile
+            dockerfile: TorrenClou.S3.Worker/Dockerfile
 
     steps:
       - name: Checkout code
@@ -267,8 +267,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          dotnet build TorreClou.sln -c Release
-          dotnet TorreClou.API/bin/Release/net9.0/TorreClou.API.dll --dump-config-schema > config-schema.json
+          dotnet build TorrenClou.sln -c Release
+          dotnet TorrenClou.API/bin/Release/net9.0/TorrenClou.API.dll --dump-config-schema > config-schema.json
           gh release upload "v${{ steps.release.outputs.version }}" config-schema.json --clobber
 
       - name: Apply semver tags
