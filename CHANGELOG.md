@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/TorrenClou/backend/compare/v1.2.0...v2.0.0) (2026-09-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename TorreClou to TorrenClou throughout ([#20](https://github.com/TorrenClou/backend/issues/20))
+
+### Refactoring
+
+* rename TorreClou to TorrenClou throughout ([#20](https://github.com/TorrenClou/backend/issues/20)) ([95545e0](https://github.com/TorrenClou/backend/commit/95545e09bd2cd720db23a220a8279e312eb0fde0))
+
 ## [1.2.0](https://github.com/TorrenClou/backend/compare/v1.1.1...v1.2.0) (2026-09-03)
 
 
