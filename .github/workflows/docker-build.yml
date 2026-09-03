@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - master
+    # Release Please pushes these. Without a tag trigger the semver tags below
+    # can never be produced.
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
@@ -95,13 +99,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
-          # No type=semver here. It only emits on a git tag, this repo has never
-          # had one, and leaving it in implied releases existed when they did not.
-          # Component semver tags arrive with Release Please.
+          # type=semver only emits on a tag. Release Please now creates those, so
+          # a release publishes :1.4.2 and :1.4 alongside the moving tags.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=TorrenClou ${{ matrix.service.name }}
@@ -116,6 +121,9 @@ jobs:
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

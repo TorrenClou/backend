@@ -27,7 +27,12 @@ COPY TorreClou.GoogleDrive.Worker/ TorreClou.GoogleDrive.Worker/
 # Explicitly build only this project, ignoring any solution file that might be present
 WORKDIR /src/TorreClou.GoogleDrive.Worker
 RUN dotnet build TorreClou.GoogleDrive.Worker.csproj -c Release --no-restore -o /app/build /p:BuildProjectReferences=true /p:SolutionDir=
-RUN dotnet publish TorreClou.GoogleDrive.Worker.csproj -c Release --no-restore -o /app/publish /p:UseAppHost=false /p:SolutionDir=
+# Stamped by CI so /api/version can report exactly what this image was built
+# from. Optional: a local build simply reports them as unknown.
+ARG BUILD_SHA=""
+ARG BUILD_TIME=""
+
+RUN dotnet publish TorreClou.GoogleDrive.Worker.csproj -c Release --no-restore -o /app/publish /p:UseAppHost=false /p:SolutionDir= /p:BuildSha=$BUILD_SHA /p:BuildTime=$BUILD_TIME
 
 # Stage 2: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
