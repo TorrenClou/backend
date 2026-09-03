@@ -15,6 +15,11 @@ on:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      retag_version:
+        description: "Apply semver tags for this version to the current :latest, e.g. 2.0.0. For repairing a release whose tagging failed."
+        required: false
+        default: ""
 
 concurrency:
   group: build-${{ github.ref }}
