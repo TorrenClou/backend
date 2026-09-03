@@ -11,7 +11,7 @@
     line, so do not remove it or reformat that element onto several lines.
   -->
   <PropertyGroup>
-    <Version>1.1.0</Version> <!-- x-release-please-version -->
+    <Version>1.1.1</Version> <!-- x-release-please-version -->
     <Product>TorrenClou</Product>
     <Company>TorrenClou</Company>
     <Authors>TorrenClou Contributors</Authors>
