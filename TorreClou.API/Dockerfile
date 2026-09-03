@@ -1,5 +1,9 @@
 # Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+# Pinned to the build machine's own architecture. dotnet publish runs with
+# /p:UseAppHost=false, so the output is portable IL with no native launcher —
+# identical for every target. Only the runtime stage below needs to vary by
+# architecture, which keeps arm64 images from compiling under QEMU emulation.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 # Copy solution and project files for dependency restoration
