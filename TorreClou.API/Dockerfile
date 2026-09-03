@@ -28,7 +28,12 @@ COPY TorreClou.API/ TorreClou.API/
 # Build and publish
 WORKDIR /src/TorreClou.API
 RUN dotnet build -c Release --no-restore -o /app/build
-RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false
+# Stamped by CI so /api/version can report exactly what this image was built
+# from. Optional: a local build simply reports them as unknown.
+ARG BUILD_SHA=""
+ARG BUILD_TIME=""
+
+RUN dotnet publish -c Release --no-restore -o /app/publish /p:UseAppHost=false /p:BuildSha=$BUILD_SHA /p:BuildTime=$BUILD_TIME
 
 # Stage 2: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
