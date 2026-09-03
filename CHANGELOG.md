@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/TorrenClou/backend/compare/v2.0.0...v2.0.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ci:** retag from the release commit, not from latest ([#25](https://github.com/TorrenClou/backend/issues/25)) ([b2b3e91](https://github.com/TorrenClou/backend/commit/b2b3e9147ded8ff1d16bf97c676a07af7c16d3ff))
+* **ci:** stop a docs upload from blocking the release images ([#23](https://github.com/TorrenClou/backend/issues/23)) ([8119154](https://github.com/TorrenClou/backend/commit/8119154d10d17ad261ce22db072da49bb7ba52a0))
+
 ## [2.0.0](https://github.com/TorrenClou/backend/compare/v1.2.0...v2.0.0) (2026-09-03)
 
 
