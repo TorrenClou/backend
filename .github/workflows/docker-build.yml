@@ -11,18 +11,45 @@ on:
       - master
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ${{ github.repository }}
 
 jobs:
-  build:
+  # Compile before building any image. Previously the only compilation happened
+  # inside the Docker build stages, so a break was reported four times over as
+  # four failed image builds instead of once, with the compiler output buried.
+  # There is no test project yet; when one lands, it runs here.
+  compile:
+    name: Compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore TorreClou.sln
+
+      - name: Build
+        run: dotnet build TorreClou.sln -c Release --no-restore
+
+  images:
+    name: ${{ matrix.service.name }}
+    needs: compile
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     strategy:
+      fail-fast: false
       matrix:
         service:
           - name: api
@@ -34,15 +61,29 @@ jobs:
           - name: gdrive-worker
             context: .
             dockerfile: TorreClou.GoogleDrive.Worker/Dockerfile
+          # s3-worker was missing from this matrix, so its image was never
+          # published even though TorreClou.S3.Worker/Dockerfile has always
+          # existed. Any deployment splitting the workers into separate
+          # services had no image to pull.
+          - name: s3-worker
+            context: .
+            dockerfile: TorreClou.S3.Worker/Dockerfile
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Needed for the arm64 runtime stage. The SDK stage is pinned to
+      # $BUILDPLATFORM in every Dockerfile, so .NET itself never compiles under
+      # emulation — only the handful of apt/useradd steps in the runtime stage do.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -54,13 +95,21 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
+          # No type=semver here. It only emits on a git tag, this repo has never
+          # had one, and leaving it in implied releases existed when they did not.
+          # Component semver tags arrive with Release Please.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
+            type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=TorrenClou ${{ matrix.service.name }}
+            org.opencontainers.image.description=TorrenClou ${{ matrix.service.name }} — self-hosted torrent-to-cloud
+            org.opencontainers.image.vendor=TorrenClou
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.url=https://tc.gitnasr.com
+            org.opencontainers.image.documentation=https://tc.gitnasr.com/docs
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -72,13 +121,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
 
-  # Deployment is gated on the build above. Dokploy's autoDeploy is off, so a push
+  # Deployment is gated on the images above. Dokploy's autoDeploy is off, so a push
   # that fails to build never reaches production — the previous deployment keeps
   # serving. DOKPLOY_DEPLOY_URL is the compose deploy webhook from Dokploy.
   deploy:
-    needs: build
+    needs: images
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -100,3 +149,26 @@ jobs:
             echo "::error::Dokploy deploy webhook returned $status"
             exit 1
           fi
+
+  # Was its own workflow on the same push trigger, so it raced this one: the
+  # combined image could be built from a commit whose own images had just failed
+  # to build. Gated on images now, so the all-in-one is only rebuilt from a
+  # commit that actually compiles.
+  dispatch-combined:
+    needs: images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger combined image build
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DEPLOY_PAT }}
+          repository: TorrenClou/deploy
+          event-type: build-combined
+          client-payload: |
+            {
+              "repository": "${{ github.repository }}",
+              "sha": "${{ github.sha }}",
+              "ref": "${{ github.ref }}",
+              "actor": "${{ github.actor }}"
+            }
