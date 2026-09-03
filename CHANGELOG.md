@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/TorrenClou/backend/compare/v1.1.1...v1.2.0) (2026-09-03)
+
+
+### Features
+
+* generate the configuration reference from the code ([#17](https://github.com/TorrenClou/backend/issues/17)) ([53842f9](https://github.com/TorrenClou/backend/commit/53842f9db8d9071782e902818bb81758011b0f42))
+
+
+### Bug Fixes
+
+* **deps:** resolve vulnerable OpenTelemetry and Snappier packages ([#19](https://github.com/TorrenClou/backend/issues/19)) ([fd979e8](https://github.com/TorrenClou/backend/commit/fd979e8ef1d4f967604b0095338b71d7411797c0))
+
 ## [1.1.1](https://github.com/TorrenClou/backend/compare/v1.1.0...v1.1.1) (2026-09-03)
 
 
