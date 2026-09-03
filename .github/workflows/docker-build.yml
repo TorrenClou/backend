@@ -153,32 +153,47 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
           platforms: linux/amd64,linux/arm64
 
-  # Deployment is gated on the images above. Dokploy's autoDeploy is off, so a push
-  # that fails to build never reaches production — the previous deployment keeps
-  # serving. DOKPLOY_DEPLOY_URL is the compose deploy webhook from Dokploy.
-  deploy:
+  # Optional, and provider-agnostic.
+  #
+  # This used to POST to a hardcoded Dokploy webhook and fail the whole workflow
+  # when the secret was missing or the response was not exactly 200. It had been
+  # failing every push to main with "Branch Not Match" (301) — a Dokploy-side
+  # configuration mismatch that made a perfectly good build look broken.
+  #
+  # TorrenClou is not tied to one host. It publishes images; Dokploy, Coolify,
+  # Railway, Render or a plain docker host all pull them, and most of those
+  # redeploy on their own. So this is now a hook for whoever wants one, named
+  # after nothing in particular.
+  #
+  # It never fails the workflow. By the time it runs the images are already
+  # published and the build genuinely succeeded — a webhook that is misconfigured
+  # or briefly down is not a reason to mark that build red, and re-running the
+  # build would not fix it either.
+  notify-deploy:
     needs: images
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Dokploy deployment
+      - name: Notify the deploy webhook, if one is configured
         env:
-          DEPLOY_URL: ${{ secrets.DOKPLOY_DEPLOY_URL }}
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
-          if [ -z "$DEPLOY_URL" ]; then
-            echo "::error::DOKPLOY_DEPLOY_URL is not set. Add it as a repository secret."
-            exit 1
+          set -uo pipefail
+
+          if [ -z "${DEPLOY_WEBHOOK_URL}" ]; then
+            echo "No DEPLOY_WEBHOOK_URL secret set - nothing to notify."
+            echo "Images are published; most platforms redeploy by pulling them."
+            exit 0
           fi
 
-          status=$(curl -sS -o /tmp/deploy.log -w '%{http_code}' -X POST "$DEPLOY_URL")
-          echo "Dokploy responded $status"
-          cat /tmp/deploy.log || true
+          status=$(curl -sS -L -o /tmp/deploy.log -w '%{http_code}'             -X POST "${DEPLOY_WEBHOOK_URL}" || echo 000)
+          echo "Webhook responded ${status}"
+          cat /tmp/deploy.log 2>/dev/null || true
 
-          # Dokploy returns 200 on accept; anything else means the deploy never started.
-          if [ "$status" != "200" ]; then
-            echo "::error::Dokploy deploy webhook returned $status"
-            exit 1
-          fi
+          case "${status}" in
+            2*) echo "Deploy triggered." ;;
+            *)  echo "::warning::Deploy webhook returned ${status}. The images published successfully; only the redeploy notification failed. Check the webhook URL and, if the host filters by branch, that it accepts main." ;;
+          esac
 
   # Was its own workflow on the same push trigger, so it raced this one: the
   # combined image could be built from a commit whose own images had just failed
