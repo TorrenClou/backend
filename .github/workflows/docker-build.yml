@@ -15,11 +15,6 @@ on:
       - main
       - master
   workflow_dispatch:
-    inputs:
-      retag_version:
-        description: "Apply semver tags for this version to the current :latest, e.g. 2.0.0. For repairing a release whose tagging failed."
-        required: false
-        default: ""
 
 concurrency:
   group: build-${{ github.ref }}
@@ -238,9 +233,7 @@ jobs:
   # tested.
   tag-release:
     needs: images
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -254,17 +247,6 @@ jobs:
         id: release
         run: |
           set -euo pipefail
-
-          # workflow_dispatch with retag_version repairs a release whose tagging
-          # failed, without inventing a new version to get it done.
-          manual="${{ github.event.inputs.retag_version }}"
-          if [ -n "$manual" ]; then
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=${manual}" >> "$GITHUB_OUTPUT"
-            echo "major_minor=${manual%.*}" >> "$GITHUB_OUTPUT"
-            echo "Manual retag of ${manual}"
-            exit 0
-          fi
 
           # Release Please touches the manifest and nothing else does.
           if git diff --name-only HEAD^ HEAD | grep -qx '.release-please-manifest.json'; then
@@ -301,14 +283,10 @@ jobs:
             # IMAGE_PREFIX is github.repository, which preserves the owner's
             # casing, and Docker rejects an uppercase repository name.
             image="${{ env.REGISTRY }}/${prefix}/${service}"
-            source_tag="${SOURCE_TAG:-sha-${{ github.sha }}}"
+            source_tag="sha-${{ github.sha }}"
             echo "Tagging ${image} as ${version} and ${major_minor}"
             docker buildx imagetools create               --tag "${image}:${version}"               --tag "${image}:${major_minor}"               "${image}:${source_tag}"
           done
-        env:
-          # A manual retag has no build of its own to point at, so it promotes
-          # whatever :latest currently is.
-          SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'latest' || '' }}
 
       - uses: actions/setup-dotnet@v4
         if: steps.release.outputs.is_release == 'true'
