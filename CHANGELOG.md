@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.7.1] - 2026-11-01
+
+* fix(deploy): attach backend services to dokploy-network in docker-compose.dokploy.yml (d61f476)
+
 ## [2.7.0] - 2026-10-26
 
 * Rebuild combined image with TorrentDrive/frontend v2.9.0
