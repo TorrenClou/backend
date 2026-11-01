@@ -70,6 +70,9 @@ services:
         condition: service_healthy
     volumes:
       - downloads:/app/downloads
+    networks:
+      - default
+      - dokploy-network
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 10s
@@ -106,6 +109,9 @@ services:
         condition: service_healthy
     volumes:
       - downloads:/app/downloads
+    networks:
+      - default
+      - dokploy-network
 
   googledrive-worker:
     image: ghcr.io/torrentdrive/backend/gdrive-worker:${TORRENTDRIVE_BACKEND_VERSION:-latest}
@@ -136,6 +142,9 @@ services:
         condition: service_healthy
     volumes:
       - downloads:/app/downloads
+    networks:
+      - default
+      - dokploy-network
 
   s3-worker:
     image: ghcr.io/torrentdrive/backend/s3-worker:${TORRENTDRIVE_BACKEND_VERSION:-latest}
@@ -166,8 +175,16 @@ services:
         condition: service_healthy
     volumes:
       - downloads:/app/downloads
+    networks:
+      - default
+      - dokploy-network
 
 volumes:
   postgres_data:
   redis_data:
   downloads:
+
+networks:
+  default:
+  dokploy-network:
+    external: true
