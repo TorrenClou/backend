@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.7.3] - 2026-11-12
+
+* chore: restore sanitized appsettings.json after history cleanup (364903a)
+
 ## [2.7.1] - 2026-11-01
 
 * fix(deploy): attach backend services to dokploy-network in docker-compose.dokploy.yml (d61f476)
