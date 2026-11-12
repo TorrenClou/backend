@@ -1,18 +1,9 @@
-# TorrentDrive Backend
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/banner-dark.svg">
+  <img alt="backend — torrentdrive by gitnasr" src=".github/banner-light.svg" width="100%">
+</picture>
 
-<p align="center">
-  <strong>The .NET 9 API, Background Worker Engine &amp; All-in-One Docker Image for TorrentDrive</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/TorrentDrive/backend/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="License: MIT" /></a>
-  <a href="https://github.com/TorrentDrive/backend/pkgs/container/torrentdrive"><img src="https://img.shields.io/badge/Docker-ghcr.io%2Ftorrentdrive%2Ftorrentdrive-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker Container" /></a>
-  <a href="https://tc.gitnasr.com/docs"><img src="https://img.shields.io/badge/Docs-tc.gitnasr.com-00DC82?style=flat-square" alt="Documentation" /></a>
-  <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" alt=".NET 9" /></a>
-  <img src="https://img.shields.io/badge/Privacy-100%25%20ISP--Blind-brightgreen?style=flat-square" alt="100% ISP Blind" />
-</p>
-
----
+[Documentation](https://tc.gitnasr.com/docs) · [Website](https://tc.gitnasr.com) · [Container image](https://github.com/TorrentDrive/backend/pkgs/container/torrentdrive) · [MIT License](LICENSE)
 
 The core backend service for [TorrentDrive](https://tc.gitnasr.com) — an open-source, self-hosted torrent-to-Google Drive and S3 cloud downloader.
 
