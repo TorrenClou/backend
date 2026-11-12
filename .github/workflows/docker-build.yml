@@ -449,8 +449,8 @@ jobs:
 
           printf '%s\n' "$notes" > /tmp/release-notes.md
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "Mahmoud Nasr"
+          git config user.email "239.nasr@gmail.com"
 
           git add Directory.Build.props CHANGELOG.md
           git commit -m "chore(release): v${version} [skip ci]"
