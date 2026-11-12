@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.7.4] - 2026-11-12
+
+* Rebuild combined image with TorrentDrive/frontend v2.9.1
+
 ## [2.7.3] - 2026-11-12
 
 * chore: restore sanitized appsettings.json after history cleanup (364903a)
